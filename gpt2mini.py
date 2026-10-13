@@ -64,7 +64,7 @@ class CausalSelfAttention(nn.Module):
 
         # atençao, materializa a maior matriz transposta (T, T) para todas as querys(q) e keys(k)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf')) # mascara causal
+        att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float('-inf')) # mascara causal
         att = F.softmax(att, dim=-1) # softmax, normalizar a atencao, soma probabilistica igual a 1.
 
         # @ é para multiplicação de matrizes.
@@ -147,4 +147,32 @@ class GPT(nn.Module):
         # classificador final, projeta 768 dimensoes para o vocabulario de 50257
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
+    # carregar os parametros do HuggingFace/GPT-2
+    @classmethod
+    def from_pretrained(cls, model_type):
+
+        # carrega os pesos do modelo pretreinado do GPT-2/HuggingFace
+        assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
+        from transformers import GPT2LMHeadModel
+        print("carregando pesos do gpt pre-treinado: %s" % model_type)
+
+        #n_layer, n_head, n_embd são determinados do model_type
+        config_args = {
+            'gpt2': dict(n_layer=12, n_head=12, n_embd=768), #124M parametros
+            'gpt2-medium': dict(n_layer=24, n_head=16, n_embd=1024), #350M parametros
+            'gpt2-large': dict(n_layer=36, n_head=20, n_embd=1280), #774M parametros
+            'gpt2-xl': dict(n_layer=48, n_head=25, n_embd=1600) #1558M parametros
+        }[model_type]
+
+        config_args['vocab_size'] = 50257 # Sempre 50257 para checkpoints do modelo do GPT
+        config_args['block_size'] = 1024 # Sempre 1025 para checkpoints do modelo do GPT
+
+        #inicializador do modelo do GPT2 'mini'
+        config = GPTconfigs(**config_args)
+        model = GPT(config)
+        sd = model.state_dict()
+        sd_keys = sd.keys()
+        sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')]
+
+        
 #-=-=-=-=-=-=-  FIM GPT-2  -=-=-=-=-=-=-=-=--=-=
