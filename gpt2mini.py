@@ -3,7 +3,33 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-# Block 
+
+
+
+# Rede Neural = Multi Layer Perceptron = Feed-Forward Network
+class MLP(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.c_fc = nn.Linear(config.num_embedding, 4 * config.num_embedding)
+        # Gaussian Error Linear Unit (funcao de acao probabilistica)
+        # GELU, ao contrario do ReLU, nao dispensa os valores negativos
+        #'tanh'~ HyperbolicTangent funcao para aproximacao de valores, garante mais velocidade.
+        self.gelu = nn.GELU(approximate='tanh') 
+
+        self.c_proj = nn.Linear(4 * config.num_embedding, config.num_embedding)
+
+    # 'forward' nao tem significado, apenas o nome dado para o caminho da pipeline.
+    def forward(self, x):
+        x = self.c_fc(x)
+        x = self.gelu(x)
+        x = self.c_proj(x)
+        return x
+
+
+
+
+# Block = bloco de Decoder do Transformer.
 class Block(nn.Module):
 
     def __init__(self, config):
@@ -13,6 +39,7 @@ class Block(nn.Module):
         self.ln_2 = nn.LayerNorm(config.num_embedding) # Camada de normalizacao 2
         self.mlp = MLP(config) #multi layer perceptron (feed-forward network -> FFN)
 
+    # 'forward' nao tem significado, apenas o nome dado para o caminho da pipeline.
     def forward(self, x):
         x += self.attn(self.ln_1(x)) # x vai para normalizacao 1 e depois atencao
         x += self.mlp(self.ln_2(x)) # x vai para normalizacao 2 e depois feed-forward
