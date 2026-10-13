@@ -6,7 +6,7 @@ import math
 
 
 
-#
+
 #-=-=-=-=-=-=-  COMECO GPT-2  -=-=-=-=-=-=-=-=--=-=
 #
 # Seguindo convencoes de nome do HuggingFace para podermos
@@ -57,7 +57,8 @@ class CausalSelfAttention(nn.Module):
         # GPT-2 mini(124M) : n_head=12 ; hs=64 ; logo, nh*ns=768 canais para o transformer.
         #
         qkv = self.c_attn(x)
-        q, k, v = qkv.split(self.n_embd, dim=12)
+        # qkv tem shape (B, T, 3*C); divide a ultima dimensao em Q, K e V.
+        q, k, v = qkv.split(self.n_embd, dim=-1)
 
         # B e nh sao tratados como batches, e por isso aplica as operações neles em paralelo
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)    # B, nh, T, hs
@@ -73,7 +74,7 @@ class CausalSelfAttention(nn.Module):
         # att @ v - é uma maneira de fazer uma soma com pesos, basicamente estamos somando a atencao
         # os tokens que achamos interessantes em cada um dos tokens('Attention Ammount')
         y = att @ v # (B, nh, T, ns) x (B, nh, T, hs) = (B, nh, T, hs)
-        y = y.traspose(1, 2).contiguos().view(B, T, C) # remontar todos os outputs das cabeças, lado a lado, concatenacao.
+        y = y.transpose(1, 2).contiguous().view(B, T, C) # remontar todos os outputs das cabeças, lado a lado, concatenacao.
 
         # projecao da saída.
         y = self.c_proj(y)
@@ -160,6 +161,50 @@ class GPT(nn.Module):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
 
+    # funcao que de fato vai encaminhar para geracao.
+    # recebe : os indices de tokens (idx)
+    # retorna: 
+    def forward(self, idx):
+        # idx tem o shape (B, T)
+        # T nao pode ser maior que o block_size que eh o max do comprimento da sequencia. (1024)
+        # cada linha dessa matriz pode ter ate `block_size` de tamanho.
+        # 
+        # basicamente:
+        # B - sequencias
+        # T - maximo de tokens por sequencia
+        B, T = idx.size()
+        assert T <= self.config.block_size, f"Nao foi possivel encaminhar a sequencia de len:{T}, block size..."
+
+
+        # encaminhamentos:
+        #
+        # encaminhamento dos embeddings de token e posicional
+        pos = torch.arange(0, T, dtype=torch.long, device=idx.device) # arange=range para o PyTorch | cria um indices de posicao.|device garantir que a GPU seja utilizada.
+        pos_emb = self.transformer.wpe(pos) # embeddings posicionais de shape: (T, n_embd) | uma outra dimensao `fantasma` tem que ser criada para dar match no tok_emb.
+        tok_emb = self.transformer.wte(idx) # embeddings de tokens de shape: (B, T, n_embd)
+        x = tok_emb + pos_emb
+        #
+        # encaminhamento dos blocos para o transformer
+        for block in self.transformer.h:
+            x = block(x)
+        #
+        # encaminhamento da ultima camada de normalizacao e dos classificadores
+        #
+        # se o input foi BxT(B, T) indices, entao cada um dos BxT vai calcular
+        # o `logits` para qual token deve ser o proximo na sequencia.
+        # ou seja, o token BxT+1, o token logo a direita dele; o proximo.
+        x = self.transformer.ln_f(x)
+        logits = self.lm_head(x) # (B, T, vocab_size) | vocab_size eh o numero de possiveis maximos tokens para serem o proximo
+        return logits
+# Logits são scores brutos(raw) e não normalizados produzidas por um modelo de 
+# aprendizado de máquina antes de serem convertidas em probabilidades por 
+# meio de uma função de ativação como softmax ou sigmoid.
+#
+# Esses logits estao apenas precisando passar pelo Softmax para 
+# virarem probabilidades.
+
+
+
     # pre-trained eh um construtor que retorna um objeto GPT() dado um `model_type`
     # nesse caso `model_type = gpt2` (que eh o gpt2 mini, o menor)
     #
@@ -222,5 +267,114 @@ class GPT(nn.Module):
 #-=-=-=-=-=-=-  FIM GPT-2  -=-=-=-=-=-=-=-=--=-=
 
 
+# tentativa de gerar o identico ao que temos no `.ipynb` do HuggingFace
+num_return_sequences = 5
+max_length = 30
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Dispositivo: {device}")
+
 model = GPT.from_pretrained('gpt2')
 print("\n\t!!! nao crashou !!!")
+model.eval() # evaluation mode: boa pratica para nao treinar e apenas usar.
+model.to(device) # usa CUDA quando disponivel; caso contrario, usa a CPU.
+
+# prefix tokens
+import tiktoken
+enc = tiktoken.get_encoding('gpt2')
+tokens = enc.encode("Hello, I'm a language model,") # apos encodar a string, recebemos uma lista de inteiro; os tokens.
+tokens = torch.tensor(tokens, dtype=torch.long) # (, 8) tokens
+tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1) # entao vamos replicar os 8 tokens, 5 vezes (5, 8) tokens
+#
+# x agora eh nosso idx
+# que iremos colocar no forward para gerarmos o
+# nosso 9 token em cada uma das 5 linhas.
+x = tokens.to(device) # tokens e modelo precisam estar no mesmo dispositivo.
+
+# generate!
+# agora para a geracao em si.
+# temos nosso x, que agora eh: (B, T) Batch = 5 , Time = 8
+#
+#colocar a `seed` em 42
+#
+# em cada iteracao desse codigo estamos adicionando
+# uma coluna de novos indices em cada um dessas linhas
+# em cada uma dessas linhas, novos indices serao `appended`(adicionados/juntos)
+# a nova sequencia, a partir do que vamos fazendo a amostragem.
+#
+# basicamente, prevemos o proximo elemento e o adicionamos.
+torch.manual_seed(42)
+if device.type == 'cuda':
+    torch.cuda.manual_seed(42)
+while x.size(1) < max_length:
+    # encaminhar o modelo para pegar os logits
+    # `no_grad` - no gradient, desativa o cálculo de gradientes fazendo com que o 
+    # pyTorch nao possa executar backpropagation, economizando memoria e processamento.
+    # nao precisamos treinar nada, apenas gerar; logo nao precisamos de backpropagation.
+    with torch.no_grad(): 
+        logits = model(x) # (B, T, vocab_size)
+        # pegar os logits da ultima posicao
+        # apenas nos importamos com os logits da ultima coluna.
+        logits = logits[:, -1, :] # (B, vocab_size)
+        # pegar as probabilidades
+        probs = F.softmax(logits, dim=-1)
+
+        # pegar os top-k 50 das amostras (padrao do huggingface)
+        # ;restrigir a escolha aos 50 tokens mais provaveis.
+        # restrigir ao top-50 ajuda o modelo a nao sair do caminho,
+        # a se perder tao facilmente do contexto dos tokens.
+        #
+        # topk_probs = matriz(5, 50) ; topk_indices = matriz(5, 50)
+        topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
+
+        # selecione um token das top-k probabilidades
+        ix = torch.multinomial(topk_probs, 1)
+
+        # pegues seus indices correspondentes
+        xcol = torch.gather(topk_indices, -1, ix)
+
+        # `append`(junte) a sequencia
+        x = torch.cat((x, xcol), dim=-1) 
+
+# print o texto que foi gerado.
+for i in range(num_return_sequences):
+    tokens = x[i, :max_length].tolist()
+    decoded = enc.decode(tokens)
+    print(">", decoded) 
+
+# =============================================================================
+# TOP-K: SELEÇÃO DOS K TOKENS MAIS PROVÁVEIS
+# =============================================================================
+#
+# Top-k significa "os k elementos com maior valor".
+# O k indica quantos candidatos queremos selecionar.
+#
+# Na geração de texto, selecionamos os k tokens com maior probabilidade
+# de aparecer na próxima posição.
+#
+# -----------------------------------------------------------------------------
+# EXEMPLO
+# -----------------------------------------------------------------------------
+#
+# Depois de "Eu gosto de", imagine estas probabilidades:
+#
+#     Próximo token       Probabilidade
+#     ---------------------------------
+#     café                    40%
+#     música                  30%
+#     viajar                  15%
+#     chocolate               10%
+#     pedra                    5%
+#
+# Com top-k = 3, apenas "café", "música" e "viajar" participam da escolha.
+# Os demais candidatos ficam excluídos desse passo.
+#
+# -----------------------------------------------------------------------------
+# SELEÇÃO E SORTEIO
+# -----------------------------------------------------------------------------
+#
+# Top-k seleciona os candidatos; o sorteio escolhe um deles.
+#
+# O sorteio respeita os pesos relativos: "café" tem mais chance de ser
+# escolhido do que "viajar". Não é uma escolha com chances iguais.
+#
+# =============================================================================

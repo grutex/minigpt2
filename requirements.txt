@@ -1,4 +1,5 @@
 transformers
 torch
+tiktoken
 pandas
 matplotlib
