@@ -1,0 +1,7 @@
+1. comece ativando o script `mkinit_venv.cmd`.
+O script ira instanciar um .venv, fazer a checagem
+e baixar as dependencias do `requirements.txt` dentro do .venv.
+2. espere o ambiente virtual baixar tudo e iniciar.
+3. digite o comando: python gpt2mini-default.py
+ou
+4. digite o comando: python crash-test.py
