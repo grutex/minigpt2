@@ -78,6 +78,7 @@ class CausalSelfAttention(nn.Module):
         return y
 
 
+
 # Rede Neural = Multi Layer Perceptron = Feed-Forward Network
 class MLP(nn.Module):
 
@@ -102,7 +103,6 @@ class MLP(nn.Module):
 
 
 
-
 # Block = bloco de Decoder do Transformer.
 class Block(nn.Module):
 
@@ -120,13 +120,16 @@ class Block(nn.Module):
         return x # valor 
 
 
+
 @dataclass
 class GPTconfigs:
-    block_size:int = 256
-    vocab_size:int = 65
-    n_layer:int = 6
-    n_head:int = 6
-    n_embd:int = 384
+    block_size:int = 1024
+    vocab_size:int = 50257
+    n_layer:int = 12
+    n_head:int = 12
+    n_embd:int = 768
+
+
 
 class GPT(nn.Module):
     def __init__(self, config):
@@ -150,7 +153,8 @@ class GPT(nn.Module):
         # classificador final, projeta 768 dimensoes para o vocabulario de 50257
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-    # carregar os parametros do HuggingFace/GPT-2
+    # carregar os parametros do HuggingFace/GPT-2, seria desnecessário não fazer isso
+    # é apenas um trabalho massivo de teste e reteste até achar os números corretos.
     @classmethod
     def from_pretrained(cls, model_type):
         from transformers import GPT2LMHeadModel
@@ -177,5 +181,10 @@ class GPT(nn.Module):
         sd_keys = sd.keys()
         sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')]
 
-        
+        #incializador do modelo do HuggingFace/Transformer
+        model_hf = GPT2LMHeadModel.from_pretrained(model_type)
+        sd_hf = model_hf.state_dict()
+
+
+
 #-=-=-=-=-=-=-  FIM GPT-2  -=-=-=-=-=-=-=-=--=-=
