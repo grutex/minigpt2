@@ -44,13 +44,13 @@ class CausalSelfAttention(nn.Module):
     # querys e keys tem que multiplicar uns com os outros para ter o 'Attention Ammount', ou seja
     # o quão interessante eles acham uns aos outros.
     def forward(self, x):
-        # B ~ tamanho do batch, ??
-        # T ~ comprimento da sequencia ??
-        # C ~ dimensionalidade do embedding (n_embd) ??
+        # B ~ tamanho do batch
+        # T ~ comprimento da sequencia
+        # C ~ dimensionalidade do embedding (n_embd)
         B, T, C = x.size()
         
         # calcula os valores de query(q), key(k), value(v) para todas as cabeças e move para o proximo batch
-        # nh é 'number of heads', ns é 'head size' e C número de canais = nh * ns
+        # nh é 'number of heads', hs é 'head size' e C número de canais = nh * ns
         #
         # GPT-2 mini(124M) : n_head=12 ; hs=64 ; logo, nh*ns=768 canais para o transformer.
         #
@@ -141,7 +141,10 @@ class GPT(nn.Module):
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd), #weigth tkn embd
             wpe = nn.Embedding(config.block_size, config.n_embd), #weigth pos embd
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]), #`hidden` -> layers
+            # `hidden` -> layers, apos passar pela  (normalização1 e multihead-attn) -> h1
+            # h1 passa pela (normalização2 e FeedForwardNetwork) -> h2; ou seja:
+            # h(hidden) é a saída do Decoder antes da normalização e da projeção Linear + Softmax.
+            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]), 
             ln_f = nn.LayerNorm(config.n_embd), #normalizador
         ))
         # classificador final, projeta 768 dimensoes para o vocabulario de 50257
@@ -150,10 +153,10 @@ class GPT(nn.Module):
     # carregar os parametros do HuggingFace/GPT-2
     @classmethod
     def from_pretrained(cls, model_type):
-
+        from transformers import GPT2LMHeadModel
+        
         # carrega os pesos do modelo pretreinado do GPT-2/HuggingFace
         assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
-        from transformers import GPT2LMHeadModel
         print("carregando pesos do gpt pre-treinado: %s" % model_type)
 
         #n_layer, n_head, n_embd são determinados do model_type
@@ -174,5 +177,5 @@ class GPT(nn.Module):
         sd_keys = sd.keys()
         sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')]
 
-        
+
 #-=-=-=-=-=-=-  FIM GPT-2  -=-=-=-=-=-=-=-=--=-=
