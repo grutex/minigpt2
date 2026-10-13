@@ -5,7 +5,7 @@ from torch.nn import functional as F
 import math
 
 # Limita o paralelismo das operacoes de CPU para reduzir a carga do teste.
-torch.set_num_threads(2)
+torch.set_num_threads(4)
 
 
 
@@ -22,6 +22,9 @@ torch.set_num_threads(2)
 # 2 threads (menos threads para testar limite da minha CPU)
 # 30 tokens (padrao HuggingFace)
 # 5 sequencias (padrao HuggingFace)
+#
+# Para alterar o numero de Thread: CTRL+F -> torch.set_num_threads(x)
+# onde `x` = threads desejadas.
 #============================================================================
 
 
