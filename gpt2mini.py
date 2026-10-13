@@ -4,7 +4,20 @@ import torch.nn as nn
 from torch.nn import functional as F
 import math
 
-
+# Versao com thread padrao.
+#============================================================================
+# Se possuir uma GPU NVIDIA com CUDA, instale o torch na versao CUDA.
+# o codigo ira verificar se eh possivel usar CUDA. Se nao, ira usar a CPU.
+#
+# OBS:
+# Esse codigo estava crashando meu PC, provavelmente super aquecimento da CPU.
+#
+#
+# Info:
+# 6 threads (padrao PyTorch)
+# 30 tokens (padrao HuggingFace)
+# 5 sequencias (padrao HuggingFace)
+#============================================================================
 
 
 #-=-=-=-=-=-=-  COMECO GPT-2  -=-=-=-=-=-=-=-=--=-=
