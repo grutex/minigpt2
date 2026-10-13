@@ -9,8 +9,10 @@ import math
 #
 #-=-=-=-=-=-=-  COMECO GPT-2  -=-=-=-=-=-=-=-=--=-=
 #
-# Seguindo convencoes de nome do HuggingFaces para podermos
+# Seguindo convencoes de nome do HuggingFace para podermos
 # reutilizar os pesos pre-setados por eles.
+# nao existe a necessidade de testarmos os embeddings de pesos
+# alguem ja tentou as variacoes e chegou nesses numeros.
 
 
 # Em cada camada de atenção, tem várias 'cabeças' funcionando em paralelo
@@ -20,7 +22,7 @@ class CausalSelfAttention(nn.Module):
     
     def __init__(self, config):
         super().__init__()
-        assert config.n_embd % config.n_head
+        assert config.n_embd % config.n_head == 0
 
         #key, query, value para todas as cabeças; em batch
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
@@ -121,13 +123,17 @@ class Block(nn.Module):
 
 
 
+#tamanho e estrutura do modelo
 @dataclass
 class GPTconfigs:
-    block_size:int = 1024
-    vocab_size:int = 50257
-    n_layer:int = 12
-    n_head:int = 12
-    n_embd:int = 768
+    block_size:int = 1024 # comprimento máx da sequência, em tokens, que o modelo pode processar em uma passagem (Janela de Contexto)|ou seja,0 a 1023 posicoes;1024x1024 mascara causal.
+    vocab_size:int = 50257 # maximo numero de tokens do vocab/dicionario | 50.000 combinacoes do BPE + 256 bytes de tokens(para as folhas da arvore do BPE) + 1 <|endoftext|> token
+    n_layer:int = 12 # numero de layers | quantos transformers serao empilhados.
+    n_head:int = 12 # numero de cabecas de atencao em cada bloco que rodam em paralelo.
+    n_embd:int = 768 # vetor que representa cada token ao longo dos blocos; 768 números por token.
+    #
+    #Assim, com os padrões atuais, o modelo processa sequências de até 1024 tokens, representados por vetores de 768 dimensões, 
+    # passando por 12 blocos, cada um com 12 cabeças de atenção.
 
 
 
@@ -153,6 +159,10 @@ class GPT(nn.Module):
         # classificador final, projeta 768 dimensoes para o vocabulario de 50257
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
+
+    # pre-trained eh um construtor que retorna um objeto GPT() dado um `model_type`
+    # nesse caso `model_type = gpt2` (que eh o gpt2 mini, o menor)
+    #
     # carregar os parametros do HuggingFace/GPT-2, seria desnecessário não fazer isso
     # é apenas um trabalho massivo de teste e reteste até achar os números corretos.
     @classmethod
@@ -165,10 +175,10 @@ class GPT(nn.Module):
 
         #n_layer, n_head, n_embd são determinados do model_type
         config_args = {
-            'gpt2': dict(n_layer=12, n_head=12, n_embd=768), #124M parametros
-            'gpt2-medium': dict(n_layer=24, n_head=16, n_embd=1024), #350M parametros
-            'gpt2-large': dict(n_layer=36, n_head=20, n_embd=1280), #774M parametros
-            'gpt2-xl': dict(n_layer=48, n_head=25, n_embd=1600) #1558M parametros
+            'gpt2': dict(n_layer=12, n_head=12, n_embd=768),         #  124M  parametros
+            'gpt2-medium': dict(n_layer=24, n_head=16, n_embd=1024), #  350M  parametros
+            'gpt2-large': dict(n_layer=36, n_head=20, n_embd=1280),  #  774M  parametros
+            'gpt2-xl': dict(n_layer=48, n_head=25, n_embd=1600)      # 1558M  parametros
         }[model_type]
 
         config_args['vocab_size'] = 50257 # Sempre 50257 para checkpoints do modelo do GPT
@@ -179,12 +189,38 @@ class GPT(nn.Module):
         model = GPT(config)
         sd = model.state_dict()
         sd_keys = sd.keys()
-        sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')]
+        sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')] # ignorando essa mascara/buffer que eh usada apenas na mascara autoregressiva.
+
 
         #incializador do modelo do HuggingFace/Transformer
         model_hf = GPT2LMHeadModel.from_pretrained(model_type)
         sd_hf = model_hf.state_dict()
+        #copiar tendo certeza que todos os parametros estao alinhados e correspondem em `name` e `shape`
+        sd_keys_hf = sd_hf.keys()
+        sd_keys_hf = [k for k in sd_keys_hf if not k.endswith('.attn.masked_bias')] #ignorando essa mascara/buffer que eh usada apenas na mascara autoregressiva.
+        sd_keys_hf = [k for k in sd_keys_hf if not k.endswith('.attn.bias')] #mesma coisa.
 
+        # os checkpoints da OpenAI usam o modulo `Conv1D`, mas apenas queremos usar
+        # vindos do repositorio do tensorflow, alguns pesos estao transpostos do que precisamos
+        # para importamos para o PyTorch. entao vamos transpor-los de volta.
+        transposed = ['attn.c_attn.weight', 'attn.c_proj.weight', 'mlp.c_fc.weight', 'mlp.c_proj.weight']
+        assert len(sd_keys_hf) == len(sd_keys), f"mismatched keys: {len(sd_keys_hf)} != {len(sd_keys)}"
+        for k in sd_keys_hf:
+            if any(k.endswith(w) for w in transposed):
+                # tratamento para os pesos Conv1D que precisamos transpor
+                assert sd_hf[k].shape[::-1] == sd[k].shape
+                with torch.no_grad():
+                    sd[k].copy_(sd_hf[k].t())
+            else:
+                # copia normal dos parametros
+                assert sd_hf[k].shape == sd[k].shape
+                with torch.no_grad():
+                    sd[k].copy_(sd_hf[k])
 
+        return model
 
 #-=-=-=-=-=-=-  FIM GPT-2  -=-=-=-=-=-=-=-=--=-=
+
+
+model = GPT.from_pretrained('gpt2')
+print("\n\t!!! nao crashou !!!")
