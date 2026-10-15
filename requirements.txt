@@ -1,5 +1,7 @@
+# gpt2
 transformers
 torch
 tiktoken
+# plotting
 pandas
 matplotlib

@@ -8,15 +8,15 @@ import math
 torch.set_num_threads(4)
 
 
-
 # Versao com menos Threads.
 #============================================================================
 # Se possuir uma GPU NVIDIA com CUDA, instale o torch na versao CUDA.
 # o codigo ira verificar se eh possivel usar CUDA. Se nao, ira usar a CPU.
 #
 # OBS:
-# Esse codigo estava crashando meu PC, provavelmente super aquecimento da CPU.
-#  
+# Por algum motivo, o código default estava crashando meu pc, entao 
+# coloquei um parâmetro para controle de Threads.  
+#
 #
 # Info:
 # 2 threads (menos threads para testar limite da minha CPU)

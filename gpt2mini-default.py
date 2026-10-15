@@ -3,6 +3,9 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import math
+import os
+import subprocess
+
 
 # Versao com thread padrao.
 #============================================================================
@@ -158,9 +161,12 @@ class GPT(nn.Module):
 
         # Abaixo, tentativa de dar match no transformer do hugging faces
         # Estrutura encontrada no arquivo `play.ipynb`
-
+        #
         # nn.Embedding - modulo wrapper de um unico array de numeros
         # permite acessar os elementos indexando-os em linhas.
+        #
+        # Quando criamos o nosso GPT.module, todas essas camadas e modulos
+        #  já tem iniciadores aleatórios por padrão.
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd), #weigth tkn embd
             wpe = nn.Embedding(config.block_size, config.n_embd), #weigth pos embd
@@ -280,19 +286,50 @@ class GPT(nn.Module):
 #-=-=-=-=-=-=-  FIM GPT-2  -=-=-=-=-=-=-=-=--=-=
 
 
-#=============  GERACAO  =======================
+#=============  GERAÇÃO  =======================
 #
-# tentativa de gerar o identico ao que temos no `.ipynb` do HuggingFace
-num_return_sequences = 5
-max_length = 100
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#
+# Única função desse código é limpar o terminal para ficar
+# trazer uma visualização mais limpa.
+subprocess.run(
+    'cls' if os.name == 'nt' else 'clear',
+    shell=os.name == 'nt',
+    check=True,
+)
+#_______________________________________________________________________________________________
+# Garantindo por onde a pipeline do modelo irá passar
+#
+# cpu - Processador; mais lento mas funciona em todos os dispositivos
+# cuda - Compute Unified Device Architecture. Uso de GPUs NVIDIA, se possuírem arquitetura CUDA.
+# mps - Metal Performance Shaders. Uso de GPUs do MAC nos modelos 'M'.
+# ==============================================================================================
+device = torch.device(
+    'cuda' if torch.cuda.is_available()
+    else 'mps' if torch.backends.mps.is_available()
+    else 'cpu'
+)
 print(f"Dispositivo: {device}")
 
-model = GPT.from_pretrained('gpt2')
+
+# tentativa de gerar o identico ao que temos no `.ipynb` do HuggingFace
+num_return_sequences = 5 # numero de gerações
+max_length = 100 # max length de tokens
+
+# Para usarmos o modelo aleatórito, simplesmente não usamos os pesos
+# pre-treinados do HuggingFace, visto que a inicialização dos moudulos,
+# como dito antes, já é random por padrão. 
+#
+# ==============================================================
+# model = GPT.from_pretrained('gpt2') # Esses são os pesos do HF
+# ==============================================================
+#
+# se deixarmos completamente random, os resultados serão
+# setenças aleatórias. lixo total.
+model = GPT(GPTconfigs()) # o padrão é o mini (124M params).
 print("\n\t|| nao crashou, gerando sentenças... ||")
 print("="*100 + "\n")
-model.eval() # evaluation mode: boa pratica para nao treinar e apenas usar.
-model.to(device) # usa CUDA quando disponivel; caso contrario, usa a CPU.
+model.eval() # coloca o modelo em evaluation mode: boa pratica para nao treinar e apenas usar.
+model.to(device) # move os parametros do modelo para o dispositivo setado em 'device' (cpu, cuda ou mps).
 
 # prefix tokens
 import tiktoken
@@ -311,7 +348,7 @@ x = tokens.to(device) # tokens e modelo precisam estar no mesmo dispositivo.
 # agora para a geracao em si.
 # temos nosso x, que agora eh: (B, T) Batch = 5 , Time = 8
 #
-#colocar a `seed` em 42
+# colocar a `seed` em 42
 #
 # em cada iteracao desse codigo estamos adicionando
 # uma coluna de novos indices em cada um dessas linhas
@@ -357,8 +394,12 @@ for i in range(num_return_sequences):
     tokens = x[i, :max_length].tolist()
     decoded = enc.decode(tokens)
     print(f"{i+1}> {decoded} \n")
-
+# A diferença de geração para o HuggingFace no 'play.ipynb'
+# se da devido a algum parametro do 'pipeline()' do HF.
+# mas se jogarmos esse mesmo código lá, a mesma frase será gerada.
 print("="*100)
+
+
 # =============================================================================
 # TOP-K: SELEÇÃO DOS K TOKENS MAIS PROVÁVEIS
 # =============================================================================
