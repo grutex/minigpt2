@@ -280,21 +280,25 @@ class GPT(nn.Module):
 #-=-=-=-=-=-=-  FIM GPT-2  -=-=-=-=-=-=-=-=--=-=
 
 
+#=============  GERACAO  =======================
+#
 # tentativa de gerar o identico ao que temos no `.ipynb` do HuggingFace
 num_return_sequences = 5
-max_length = 30
+max_length = 100
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Dispositivo: {device}")
 
 model = GPT.from_pretrained('gpt2')
-print("\n\t!!! nao crashou !!!")
+print("\n\t|| nao crashou, gerando sentenças... ||")
+print("="*100 + "\n")
 model.eval() # evaluation mode: boa pratica para nao treinar e apenas usar.
 model.to(device) # usa CUDA quando disponivel; caso contrario, usa a CPU.
 
 # prefix tokens
 import tiktoken
 enc = tiktoken.get_encoding('gpt2')
-tokens = enc.encode("Hello, I'm a language model,") # apos encodar a string, recebemos uma lista de inteiro; os tokens.
+#tokens = enc.encode("Hello, I'm a language model,") # apos encodar a string, recebemos uma lista de inteiro; os tokens.
+tokens = enc.encode("Peter Piper picked a peck of pickled peppers?")
 tokens = torch.tensor(tokens, dtype=torch.long) # (, 8) tokens
 tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1) # entao vamos replicar os 8 tokens, 5 vezes (5, 8) tokens
 #
@@ -315,7 +319,7 @@ x = tokens.to(device) # tokens e modelo precisam estar no mesmo dispositivo.
 # a nova sequencia, a partir do que vamos fazendo a amostragem.
 #
 # basicamente, prevemos o proximo elemento e o adicionamos.
-torch.manual_seed(42)
+torch.manual_seed(42) # as respostas sao geradas a partir dessa seed, sempre serão as mesmas.
 if device.type == 'cuda':
     torch.cuda.manual_seed(42)
 while x.size(1) < max_length:
@@ -352,8 +356,9 @@ while x.size(1) < max_length:
 for i in range(num_return_sequences):
     tokens = x[i, :max_length].tolist()
     decoded = enc.decode(tokens)
-    print(">", decoded) 
+    print(f"{i+1}> {decoded} \n")
 
+print("="*100)
 # =============================================================================
 # TOP-K: SELEÇÃO DOS K TOKENS MAIS PROVÁVEIS
 # =============================================================================
