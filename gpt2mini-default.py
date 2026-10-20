@@ -215,12 +215,14 @@ class GPT(nn.Module):
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x) # (B, T, vocab_size) | vocab_size eh o numero de possiveis maximos tokens para serem o proximo
         return logits
+# =============================================================================
 # Logits são scores brutos(raw) e não normalizados produzidas por um modelo de 
 # aprendizado de máquina antes de serem convertidas em probabilidades por 
 # meio de uma função de ativação como softmax ou sigmoid.
 #
 # Esses logits estao apenas precisando passar pelo Softmax para 
 # virarem probabilidades.
+# =============================================================================
 
 
 
@@ -320,7 +322,7 @@ max_length = 100 # max length de tokens
 # como dito antes, já é random por padrão. 
 #
 # ==============================================================
-# model = GPT.from_pretrained('gpt2') # Esses são os pesos do HF
+#model = GPT.from_pretrained('gpt2') # Esses são os pesos do HF
 # ==============================================================
 #
 # se deixarmos completamente random, os resultados serão
