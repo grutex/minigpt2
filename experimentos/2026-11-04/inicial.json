@@ -1,0 +1,63 @@
+{
+  "device": "cpu",
+  "torch_version": "2.14.1+cpu",
+  "python": "3.13.11 (tags/v3.13.11:6278944, Dec  5 2025, 16:26:58) [MSC v.1944 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "processor": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+  "threads": 2,
+  "ram_total_bytes": 8276746240,
+  "ram_available_bytes": 55271424,
+  "parameters": 7248640,
+  "config": {
+    "block_size": 128,
+    "vocab_size": 50304,
+    "n_layer": 4,
+    "n_head": 4,
+    "n_embd": 128
+  },
+  "data_sha256": "86c4e6aa9db7c042ec79f339dcb96d42b0075e16b8fc2e86bf0ca57e2dc565ed",
+  "total_tokens": 338025,
+  "train_tokens": 304222,
+  "val_tokens": 33803,
+  "evaluation": {
+    "batch_size": 1,
+    "seq_len": 32,
+    "batches": 32,
+    "tokens": 1024
+  },
+  "train_loss_common": 10.829196155071259,
+  "val_loss_common": 10.8288893699646,
+  "samples": [
+    {
+      "prompt": "First Citizen:",
+      "seed": 42,
+      "temperature": 0.8,
+      "top_k": 50,
+      "text": "First Citizen: adverse Asheville nm Hail Rxpex Toad Usually ser 770 Church Vend filmmaker filmmaker excitement Titanium menstrualbender uncon mates Cupsmissive>] ExtractSyrianbitealiasigue Phys viaSaudi Spotify |TWTWerekienne′′ampunk",
+      "new_tokens": 40,
+      "seconds": 0.9497458001133054,
+      "context_window": 32
+    },
+    {
+      "prompt": "To be, or not to be",
+      "seed": 42,
+      "temperature": 0.8,
+      "top_k": 50,
+      "text": "To be, or not to be be broadlypresentworldly]( Tartvisual enlistEducation popup persistence Stard complaining complaining Barbarian Shad blockingcpuaquinkind latent leader Salon probably furnished recapt arguing liqu Jaguar Jaguar Jaguar hyper Plum的的%); Archive!?\"!?\" disapp",
+      "new_tokens": 40,
+      "seconds": 0.6779086999595165,
+      "context_window": 32
+    },
+    {
+      "prompt": "Eu estou aprendendo",
+      "seed": 42,
+      "temperature": 0.8,
+      "top_k": 50,
+      "text": "Eu estou aprendendo incredht footnote cooker velears playable shun headlinesufag dismissive Joseph Joseph emoji 275versely statue we leakage thickness SeveralTAG CandidateGIHeight indistSeriously Tory Tory Tory DNA KartAnnaAnna Router enthusiasticallyngng summer",
+      "new_tokens": 40,
+      "seconds": 0.7007800000719726,
+      "context_window": 32
+    }
+  ],
+  "weights_origin": "random_initialization"
+}

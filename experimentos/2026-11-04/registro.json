@@ -1,0 +1,46 @@
+{
+  "started_utc": "2026-11-04T05:11:06.483898+00:00",
+  "source_sha256": "f07506e776a64572deb66944e7a4fb2ea2b4a037b63105c2c0bfd606d5fc6ca0",
+  "git_commit": "5cf3adb89f44bc2d02f0a15dbf8eacbdf4063c4d",
+  "budget_tokens": 4096,
+  "seed": 1337,
+  "runs": [
+    {
+      "name": "exp01_B1_T32",
+      "B": 1,
+      "T": 32,
+      "steps": 128,
+      "tokens": 4096,
+      "training_wall_seconds": 62.45929599995725,
+      "training_step_seconds": 40.02395,
+      "result": "exp01_B1_T32\\resultado.json",
+      "metrics": "exp01_B1_T32\\metricas.csv"
+    },
+    {
+      "name": "exp02_B2_T32",
+      "B": 2,
+      "T": 32,
+      "steps": 64,
+      "tokens": 4096,
+      "training_wall_seconds": 32.603517199866474,
+      "training_step_seconds": 13.61788,
+      "result": "exp02_B2_T32\\resultado.json",
+      "metrics": "exp02_B2_T32\\metricas.csv"
+    },
+    {
+      "name": "exp03_B2_T64",
+      "B": 2,
+      "T": 64,
+      "steps": 32,
+      "tokens": 4096,
+      "training_wall_seconds": 12.647172999801114,
+      "training_step_seconds": 4.04714,
+      "result": "exp03_B2_T64\\resultado.json",
+      "metrics": "exp03_B2_T64\\metricas.csv"
+    }
+  ],
+  "finished_utc": "2026-11-04T05:13:22.186353+00:00",
+  "evaluation_protocol": "B=1, T=32, 32 batches, mesmos 1024 tokens em cada conjunto; geração com janela 32",
+  "runner_sha256": "75a57e5cd019e62ba57c5230b30346e67ca5f36d8bd680334af9b14813267e87",
+  "reevaluation_protocol_verified_utc": "2026-11-04T05:32:57.118663+00:00"
+}

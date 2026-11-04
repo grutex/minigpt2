@@ -5,3 +5,5 @@ tiktoken
 # plotting
 pandas
 matplotlib
+# medições de memória nos experimentos
+psutil

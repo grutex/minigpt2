@@ -1,0 +1,14 @@
+test_accumulation_matches_batch_mean (test_gpt2mini.GPTTests.test_accumulation_matches_batch_mean) ... ok
+test_causality_and_backward (test_gpt2mini.GPTTests.test_causality_and_backward) ... ok
+test_clear_terminal_uses_original_platform_command (test_gpt2mini.GPTTests.test_clear_terminal_uses_original_platform_command) ... ok
+test_cli_training_resume_and_generation (test_gpt2mini.GPTTests.test_cli_training_resume_and_generation) ... ok
+test_device_priority (test_gpt2mini.GPTTests.test_device_priority) ... ok
+test_generation_clears_terminal (test_gpt2mini.GPTTests.test_generation_clears_terminal) ... ok
+test_generation_excludes_padding_and_crops_context (test_gpt2mini.GPTTests.test_generation_excludes_padding_and_crops_context) ... ok
+test_learning_rate_endpoints (test_gpt2mini.GPTTests.test_learning_rate_endpoints) ... ok
+test_loader_wraps_and_rejects_short_data (test_gpt2mini.GPTTests.test_loader_wraps_and_rejects_short_data) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 31.893s
+
+OK

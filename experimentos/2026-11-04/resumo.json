@@ -1,0 +1,44 @@
+[
+  {
+    "experiment": "exp01_B1_T32",
+    "B": 1,
+    "T": 32,
+    "updates": 128,
+    "tokens": 4096,
+    "parameters": 7248640,
+    "train_loss_1024": 7.305047884583473,
+    "val_loss_1024": 8.31684435904026,
+    "perplexity": 4092.2260154576793,
+    "training_seconds": 62.45929599995725,
+    "step_seconds": 40.02395,
+    "tokens_per_second": 102.3387246885927
+  },
+  {
+    "experiment": "exp02_B2_T32",
+    "B": 2,
+    "T": 32,
+    "updates": 64,
+    "tokens": 4096,
+    "parameters": 7248640,
+    "train_loss_1024": 8.807003736495972,
+    "val_loss_1024": 9.346310943365097,
+    "perplexity": 11456.481782640874,
+    "training_seconds": 32.603517199866474,
+    "step_seconds": 13.61788,
+    "tokens_per_second": 300.78103199616976
+  },
+  {
+    "experiment": "exp03_B2_T64",
+    "B": 2,
+    "T": 64,
+    "updates": 32,
+    "tokens": 4096,
+    "parameters": 7248640,
+    "train_loss_1024": 9.665123283863068,
+    "val_loss_1024": 9.92786380648613,
+    "perplexity": 20493.51567361284,
+    "training_seconds": 12.647172999801114,
+    "step_seconds": 4.04714,
+    "tokens_per_second": 1012.0727229599174
+  }
+]

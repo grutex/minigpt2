@@ -1,0 +1,145 @@
+Dispositivo: cpu | threads CPU: 2
+Tokens: 304222 treino / 33803 validação
+B=1, T=32, acumulação=1; 32 tokens/atualização
+Parâmetros únicos: 7,248,640
+num decayed parameter tensors: 18, with 7,241,728 parameters
+num non-decayed parameter tensors: 34, with 6,912 parameters
+using fused AdamW: False
+step    1/128 | loss 10.785021 | lr 6.0000e-05 | norm 10.3184 | tempo 454.05ms | tok/sec 70.48
+step    2/128 | loss 10.703317 | lr 1.2000e-04 | norm 9.2388 | tempo 207.97ms | tok/sec 153.87
+step    3/128 | loss 10.554041 | lr 1.8000e-04 | norm 7.8810 | tempo 192.60ms | tok/sec 166.15
+step    4/128 | loss 10.618371 | lr 2.4000e-04 | norm 6.6202 | tempo 234.18ms | tok/sec 136.65
+step    5/128 | loss 10.314348 | lr 3.0000e-04 | norm 5.6025 | tempo 211.16ms | tok/sec 151.54
+step    6/128 | loss 10.629435 | lr 3.0000e-04 | norm 5.2711 | tempo 214.62ms | tok/sec 149.10
+step    7/128 | loss 10.553361 | lr 2.9996e-04 | norm 3.9714 | tempo 191.16ms | tok/sec 167.40
+step    8/128 | loss 10.557637 | lr 2.9982e-04 | norm 3.4526 | tempo 250.83ms | tok/sec 127.58
+step    9/128 | loss 10.394142 | lr 2.9960e-04 | norm 3.4638 | tempo 217.20ms | tok/sec 147.33
+step   10/128 | loss 10.307392 | lr 2.9928e-04 | norm 3.2219 | tempo 234.00ms | tok/sec 136.75
+step   11/128 | loss 10.264650 | lr 2.9888e-04 | norm 3.2479 | tempo 190.69ms | tok/sec 167.81
+step   12/128 | loss 10.081677 | lr 2.9839e-04 | norm 3.3160 | tempo 211.23ms | tok/sec 151.49
+step   13/128 | loss 10.359280 | lr 2.9781e-04 | norm 2.7870 | tempo 199.34ms | tok/sec 160.53
+step   14/128 | loss 10.508356 | lr 2.9715e-04 | norm 2.8901 | tempo 210.28ms | tok/sec 152.18
+step   15/128 | loss 10.223091 | lr 2.9639e-04 | norm 2.9770 | tempo 215.52ms | tok/sec 148.48
+step   16/128 | loss 10.054935 | lr 2.9555e-04 | norm 2.9517 | tempo 196.26ms | tok/sec 163.05
+  validação: loss 10.167973
+step   17/128 | loss 10.371703 | lr 2.9462e-04 | norm 2.5526 | tempo 208.79ms | tok/sec 153.26
+step   18/128 | loss 9.627571 | lr 2.9361e-04 | norm 4.0269 | tempo 256.64ms | tok/sec 124.69
+step   19/128 | loss 10.081717 | lr 2.9251e-04 | norm 2.7005 | tempo 208.46ms | tok/sec 153.51
+step   20/128 | loss 10.137608 | lr 2.9132e-04 | norm 2.7883 | tempo 277.81ms | tok/sec 115.19
+step   21/128 | loss 9.947189 | lr 2.9005e-04 | norm 2.5811 | tempo 260.54ms | tok/sec 122.82
+step   22/128 | loss 10.196578 | lr 2.8870e-04 | norm 2.5745 | tempo 205.84ms | tok/sec 155.46
+step   23/128 | loss 9.774715 | lr 2.8727e-04 | norm 3.2944 | tempo 217.67ms | tok/sec 147.01
+step   24/128 | loss 9.772841 | lr 2.8576e-04 | norm 3.1309 | tempo 203.27ms | tok/sec 157.43
+step   25/128 | loss 10.152988 | lr 2.8416e-04 | norm 2.5396 | tempo 188.34ms | tok/sec 169.91
+step   26/128 | loss 10.155164 | lr 2.8249e-04 | norm 2.4896 | tempo 174.14ms | tok/sec 183.76
+step   27/128 | loss 9.959875 | lr 2.8074e-04 | norm 2.8036 | tempo 173.23ms | tok/sec 184.73
+step   28/128 | loss 9.871983 | lr 2.7891e-04 | norm 2.8073 | tempo 201.49ms | tok/sec 158.81
+step   29/128 | loss 9.714013 | lr 2.7701e-04 | norm 2.6767 | tempo 280.28ms | tok/sec 114.17
+step   30/128 | loss 10.062515 | lr 2.7503e-04 | norm 2.4080 | tempo 236.77ms | tok/sec 135.15
+step   31/128 | loss 10.077851 | lr 2.7298e-04 | norm 2.5681 | tempo 186.35ms | tok/sec 171.72
+step   32/128 | loss 9.856932 | lr 2.7086e-04 | norm 2.6206 | tempo 247.57ms | tok/sec 129.26
+  validação: loss 9.732603
+step   33/128 | loss 9.513324 | lr 2.6866e-04 | norm 3.1200 | tempo 268.82ms | tok/sec 119.04
+step   34/128 | loss 9.874413 | lr 2.6640e-04 | norm 2.5398 | tempo 216.86ms | tok/sec 147.56
+step   35/128 | loss 9.273968 | lr 2.6407e-04 | norm 2.7676 | tempo 283.95ms | tok/sec 112.70
+step   36/128 | loss 9.445315 | lr 2.6168e-04 | norm 2.7592 | tempo 297.40ms | tok/sec 107.60
+step   37/128 | loss 9.773455 | lr 2.5922e-04 | norm 2.6143 | tempo 722.79ms | tok/sec 44.27
+step   38/128 | loss 9.563309 | lr 2.5670e-04 | norm 3.2591 | tempo 413.08ms | tok/sec 77.47
+step   39/128 | loss 9.643483 | lr 2.5412e-04 | norm 2.9061 | tempo 375.50ms | tok/sec 85.22
+step   40/128 | loss 9.029007 | lr 2.5148e-04 | norm 2.8955 | tempo 345.72ms | tok/sec 92.56
+step   41/128 | loss 9.618073 | lr 2.4878e-04 | norm 2.7482 | tempo 408.41ms | tok/sec 78.35
+step   42/128 | loss 9.979289 | lr 2.4603e-04 | norm 3.7649 | tempo 804.83ms | tok/sec 39.76
+step   43/128 | loss 9.076726 | lr 2.4322e-04 | norm 3.0473 | tempo 288.51ms | tok/sec 110.92
+step   44/128 | loss 9.586476 | lr 2.4036e-04 | norm 3.0826 | tempo 2114.96ms | tok/sec 15.13
+step   45/128 | loss 9.222786 | lr 2.3745e-04 | norm 2.7705 | tempo 740.57ms | tok/sec 43.21
+step   46/128 | loss 9.423286 | lr 2.3450e-04 | norm 2.8337 | tempo 869.87ms | tok/sec 36.79
+step   47/128 | loss 8.642752 | lr 2.3149e-04 | norm 3.1132 | tempo 630.52ms | tok/sec 50.75
+step   48/128 | loss 8.764051 | lr 2.2845e-04 | norm 3.0508 | tempo 700.60ms | tok/sec 45.68
+  validação: loss 9.271416
+step   49/128 | loss 9.126512 | lr 2.2536e-04 | norm 2.6402 | tempo 505.65ms | tok/sec 63.28
+step   50/128 | loss 9.033936 | lr 2.2223e-04 | norm 2.7252 | tempo 285.08ms | tok/sec 112.25
+step   51/128 | loss 9.364964 | lr 2.1906e-04 | norm 2.4578 | tempo 270.42ms | tok/sec 118.34
+step   52/128 | loss 9.043052 | lr 2.1586e-04 | norm 2.6181 | tempo 194.83ms | tok/sec 164.25
+step   53/128 | loss 8.939439 | lr 2.1262e-04 | norm 3.2870 | tempo 300.45ms | tok/sec 106.51
+step   54/128 | loss 9.461317 | lr 2.0935e-04 | norm 2.6760 | tempo 284.63ms | tok/sec 112.42
+step   55/128 | loss 8.799284 | lr 2.0606e-04 | norm 2.7023 | tempo 354.34ms | tok/sec 90.31
+step   56/128 | loss 8.497535 | lr 2.0273e-04 | norm 2.8794 | tempo 342.85ms | tok/sec 93.33
+step   57/128 | loss 9.056808 | lr 1.9938e-04 | norm 2.6418 | tempo 336.88ms | tok/sec 94.99
+step   58/128 | loss 8.275950 | lr 1.9601e-04 | norm 3.1812 | tempo 871.03ms | tok/sec 36.74
+step   59/128 | loss 9.181387 | lr 1.9261e-04 | norm 2.4067 | tempo 503.17ms | tok/sec 63.60
+step   60/128 | loss 8.978518 | lr 1.8920e-04 | norm 2.5684 | tempo 300.52ms | tok/sec 106.48
+step   61/128 | loss 8.488185 | lr 1.8578e-04 | norm 2.8745 | tempo 269.93ms | tok/sec 118.55
+step   62/128 | loss 8.463251 | lr 1.8233e-04 | norm 2.9737 | tempo 514.51ms | tok/sec 62.20
+step   63/128 | loss 9.017861 | lr 1.7888e-04 | norm 2.5530 | tempo 355.89ms | tok/sec 89.91
+step   64/128 | loss 8.867918 | lr 1.7542e-04 | norm 2.3583 | tempo 205.95ms | tok/sec 155.38
+  validação: loss 8.894760
+step   65/128 | loss 8.681227 | lr 1.7195e-04 | norm 2.8252 | tempo 494.80ms | tok/sec 64.67
+step   66/128 | loss 8.221049 | lr 1.6848e-04 | norm 3.2771 | tempo 165.21ms | tok/sec 193.69
+step   67/128 | loss 9.243758 | lr 1.6500e-04 | norm 2.4384 | tempo 176.83ms | tok/sec 180.97
+step   68/128 | loss 8.843205 | lr 1.6152e-04 | norm 2.8596 | tempo 190.58ms | tok/sec 167.91
+step   69/128 | loss 8.788868 | lr 1.5805e-04 | norm 2.7182 | tempo 184.11ms | tok/sec 173.81
+step   70/128 | loss 9.001785 | lr 1.5458e-04 | norm 2.6179 | tempo 922.59ms | tok/sec 34.69
+step   71/128 | loss 9.128648 | lr 1.5112e-04 | norm 2.4536 | tempo 758.08ms | tok/sec 42.21
+step   72/128 | loss 9.530660 | lr 1.4767e-04 | norm 2.2665 | tempo 234.70ms | tok/sec 136.35
+step   73/128 | loss 8.802531 | lr 1.4422e-04 | norm 2.6270 | tempo 225.61ms | tok/sec 141.84
+step   74/128 | loss 8.521183 | lr 1.4080e-04 | norm 2.8198 | tempo 176.49ms | tok/sec 181.31
+step   75/128 | loss 8.185090 | lr 1.3739e-04 | norm 2.6116 | tempo 198.38ms | tok/sec 161.31
+step   76/128 | loss 8.499114 | lr 1.3399e-04 | norm 2.5386 | tempo 256.69ms | tok/sec 124.66
+step   77/128 | loss 8.730302 | lr 1.3062e-04 | norm 2.6345 | tempo 252.42ms | tok/sec 126.77
+step   78/128 | loss 9.263461 | lr 1.2727e-04 | norm 2.3951 | tempo 196.02ms | tok/sec 163.25
+step   79/128 | loss 8.693398 | lr 1.2394e-04 | norm 2.4499 | tempo 203.31ms | tok/sec 157.40
+step   80/128 | loss 8.331167 | lr 1.2065e-04 | norm 2.6403 | tempo 282.97ms | tok/sec 113.09
+  validação: loss 8.614678
+step   81/128 | loss 8.412239 | lr 1.1738e-04 | norm 2.6472 | tempo 2196.76ms | tok/sec 14.57
+step   82/128 | loss 8.966966 | lr 1.1414e-04 | norm 2.4245 | tempo 919.69ms | tok/sec 34.79
+step   83/128 | loss 8.349110 | lr 1.1094e-04 | norm 2.4992 | tempo 244.72ms | tok/sec 130.76
+step   84/128 | loss 8.627192 | lr 1.0777e-04 | norm 2.5646 | tempo 550.10ms | tok/sec 58.17
+step   85/128 | loss 8.731833 | lr 1.0464e-04 | norm 2.5534 | tempo 846.36ms | tok/sec 37.81
+step   86/128 | loss 8.311273 | lr 1.0155e-04 | norm 2.7953 | tempo 723.57ms | tok/sec 44.23
+step   87/128 | loss 8.900042 | lr 9.8506e-05 | norm 2.4157 | tempo 599.78ms | tok/sec 53.35
+step   88/128 | loss 8.943428 | lr 9.5503e-05 | norm 2.2117 | tempo 177.90ms | tok/sec 179.87
+step   89/128 | loss 7.697455 | lr 9.2546e-05 | norm 3.3402 | tempo 194.80ms | tok/sec 164.27
+step   90/128 | loss 7.578248 | lr 8.9637e-05 | norm 3.6216 | tempo 160.73ms | tok/sec 199.09
+step   91/128 | loss 8.047250 | lr 8.6778e-05 | norm 2.6547 | tempo 200.99ms | tok/sec 159.21
+step   92/128 | loss 8.289989 | lr 8.3971e-05 | norm 2.5231 | tempo 189.36ms | tok/sec 168.99
+step   93/128 | loss 8.126134 | lr 8.1218e-05 | norm 2.6844 | tempo 202.12ms | tok/sec 158.32
+step   94/128 | loss 8.468463 | lr 7.8520e-05 | norm 2.3036 | tempo 176.43ms | tok/sec 181.37
+step   95/128 | loss 7.823017 | lr 7.5879e-05 | norm 3.2949 | tempo 160.56ms | tok/sec 199.30
+step   96/128 | loss 8.354964 | lr 7.3298e-05 | norm 2.4136 | tempo 156.47ms | tok/sec 204.51
+  validação: loss 8.440214
+step   97/128 | loss 7.947981 | lr 7.0778e-05 | norm 3.0022 | tempo 132.72ms | tok/sec 241.11
+step   98/128 | loss 7.911550 | lr 6.8319e-05 | norm 3.0557 | tempo 116.53ms | tok/sec 274.62
+step   99/128 | loss 8.894658 | lr 6.5925e-05 | norm 2.3517 | tempo 139.98ms | tok/sec 228.61
+step  100/128 | loss 8.006552 | lr 6.3597e-05 | norm 2.7194 | tempo 129.17ms | tok/sec 247.73
+step  101/128 | loss 7.600919 | lr 6.1336e-05 | norm 2.8814 | tempo 214.66ms | tok/sec 149.08
+step  102/128 | loss 7.403023 | lr 5.9144e-05 | norm 3.4964 | tempo 190.91ms | tok/sec 167.62
+step  103/128 | loss 8.171350 | lr 5.7022e-05 | norm 2.7744 | tempo 159.98ms | tok/sec 200.02
+step  104/128 | loss 8.747525 | lr 5.4971e-05 | norm 2.4097 | tempo 155.68ms | tok/sec 205.55
+step  105/128 | loss 7.872596 | lr 5.2994e-05 | norm 2.9652 | tempo 147.97ms | tok/sec 216.26
+step  106/128 | loss 8.160094 | lr 5.1090e-05 | norm 2.8558 | tempo 165.20ms | tok/sec 193.71
+step  107/128 | loss 7.937658 | lr 4.9263e-05 | norm 2.6679 | tempo 159.01ms | tok/sec 201.24
+step  108/128 | loss 8.162018 | lr 4.7511e-05 | norm 8.5943 | tempo 142.41ms | tok/sec 224.70
+step  109/128 | loss 8.205991 | lr 4.5838e-05 | norm 2.6527 | tempo 133.18ms | tok/sec 240.28
+step  110/128 | loss 8.932181 | lr 4.4244e-05 | norm 2.2947 | tempo 122.40ms | tok/sec 261.45
+step  111/128 | loss 7.872280 | lr 4.2730e-05 | norm 2.8150 | tempo 113.44ms | tok/sec 282.09
+step  112/128 | loss 8.619744 | lr 4.1297e-05 | norm 2.3316 | tempo 122.19ms | tok/sec 261.88
+  validação: loss 8.341223
+step  113/128 | loss 8.494390 | lr 3.9946e-05 | norm 2.5379 | tempo 159.55ms | tok/sec 200.57
+step  114/128 | loss 8.540247 | lr 3.8678e-05 | norm 2.3028 | tempo 136.28ms | tok/sec 234.81
+step  115/128 | loss 8.001968 | lr 3.7494e-05 | norm 2.9078 | tempo 170.86ms | tok/sec 187.29
+step  116/128 | loss 8.050443 | lr 3.6394e-05 | norm 2.5175 | tempo 133.33ms | tok/sec 240.01
+step  117/128 | loss 7.845690 | lr 3.5380e-05 | norm 2.7693 | tempo 132.09ms | tok/sec 242.25
+step  118/128 | loss 7.814989 | lr 3.4451e-05 | norm 3.2787 | tempo 133.60ms | tok/sec 239.52
+step  119/128 | loss 7.848836 | lr 3.3609e-05 | norm 2.6021 | tempo 129.68ms | tok/sec 246.77
+step  120/128 | loss 8.829323 | lr 3.2854e-05 | norm 2.1727 | tempo 158.62ms | tok/sec 201.74
+step  121/128 | loss 7.997407 | lr 3.2187e-05 | norm 2.5233 | tempo 147.96ms | tok/sec 216.28
+step  122/128 | loss 8.267496 | lr 3.1608e-05 | norm 2.4611 | tempo 161.97ms | tok/sec 197.57
+step  123/128 | loss 8.207195 | lr 3.1117e-05 | norm 2.9115 | tempo 150.14ms | tok/sec 213.14
+step  124/128 | loss 8.301315 | lr 3.0716e-05 | norm 2.6081 | tempo 183.64ms | tok/sec 174.25
+step  125/128 | loss 8.036185 | lr 3.0403e-05 | norm 2.8240 | tempo 180.46ms | tok/sec 177.32
+step  126/128 | loss 8.478267 | lr 3.0179e-05 | norm 2.4170 | tempo 198.25ms | tok/sec 161.41
+step  127/128 | loss 8.318758 | lr 3.0045e-05 | norm 2.6180 | tempo 176.83ms | tok/sec 180.97
+step  128/128 | loss 8.408685 | lr 3.0000e-05 | norm 2.5925 | tempo 169.33ms | tok/sec 188.98
+  validação: loss 8.284080
+  checkpoint salvo: C:\Users\feraf\OneDrive\Documents\Code\LLM\minigpt2\experimentos\2026-11-04\exp01_B1_T32\checkpoints\last.pt
+Treino concluído. Use o modo generate para carregar os pesos e gerar texto.
