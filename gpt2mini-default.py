@@ -5,6 +5,7 @@ from torch.nn import functional as F
 import math
 import os
 import subprocess
+import time
 
 
 # Versao com thread padrao.
@@ -22,6 +23,16 @@ import subprocess
 # 5 sequencias (padrao HuggingFace)
 #============================================================================
 
+#Ugly x Beautiful Numbers
+# Esses compiladores rodam em potencias de 2
+# Ugly Numbers são aqueles que não são divisiveis por potencia de 2
+# Beautiful Numbers: 128, 768, 1024, 2048 . . .
+# Ugly: 50257
+# Sempre tente remover os ugly numbers, quem sabe
+# talvez você consiga um pouco de performance por isso...
+#
+# Para resolver isso, aumente o numero ao número que é potencia de 2
+# mais proximo; ex: 50257 -> 50304, divisivel por 8, 16, 32, 64 . . .
 
 #-=-=-=-=-=-=-  COMECO GPT-2  -=-=-=-=-=-=-=-=--=-=
 #
@@ -45,6 +56,7 @@ class CausalSelfAttention(nn.Module):
 
         #output
         self.c_proj = nn.Linear(config.n_embd, config.n_embd)
+        self.c_proj.NANOGPT_SCALE_INIT = 1
 
         #regularização
         self.n_head = config.n_head
@@ -113,6 +125,8 @@ class MLP(nn.Module):
 
         self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd)
 
+        self.c_proj.NANOGPT_SCALE_INIT = 1
+
     # 'forward' nao tem significado, apenas o nome dado para o caminho da pipeline.
     def forward(self, x):
         x = self.c_fc(x)
@@ -134,8 +148,8 @@ class Block(nn.Module):
 
     # 'forward' nao tem significado, apenas o nome dado para o caminho da pipeline.
     def forward(self, x):
-        x += self.attn(self.ln_1(x)) # x vai para normalizacao 1 e depois atencao
-        x += self.mlp(self.ln_2(x)) # x vai para normalizacao 2 e depois feed-forward
+        x = x + self.attn(self.ln_1(x)) # x vai para normalizacao 1 e depois atencao
+        x = x + self.mlp(self.ln_2(x)) # x vai para normalizacao 2 e depois feed-forward
         return x # valor 
 
 
@@ -155,6 +169,7 @@ class GPTconfigs:
 
 
 class GPT(nn.Module):
+
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -179,6 +194,46 @@ class GPT(nn.Module):
         # classificador final, projeta 768 dimensoes para o vocabulario de 50257
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
+        # Weight Sharing Scheme / Weight Tying Scheme
+        #
+        # basicamente estamos apontando o wte.weight para o lm_head
+        # ponteiro para lm_head. Copia a referencia, o data pointer.
+        # nos deixando com um único Tensor que será usado 2 vezes
+        # no Feed-Forward.
+        #
+        # aqui tem ~30% dos parametros sendo poupados ao usar esse Scheme.
+        # 768 * 50257 = 38,597,376 parametros ~40M
+        # 40M/124M = 0.3225 (32%)
+        #
+        # Por causa do Weight Tying não precisamos treinar tantos parametros
+        # tornando nosso modelo mais eficiente.
+        #  -----------------------------------------------------------
+        self.transformer.wte.weight = self.lm_head.weight
+
+        # init params
+        #
+        # apply:
+        # itera todos os submodulos desse modulo
+        # e aplica a função "_init_weights"
+        self.apply(self._init_weights) 
+
+    # Se o modulo é nn.Linear > inicie os pesos com uma normal com um
+    # desvio-padrao de 0.02
+    # 
+    # Se tiver um vies(bias) nessa camada > inicia com zero
+    # 
+    # Se o modulo é nn.Embedding > inicie os pesos com uma normal com
+    # desvio-padrao de 0.02  
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            std = 0.02
+            if hasattr(module, 'NANOGPT_SCALE_INIT'):
+                std *= (2 * self.config.n_layer) ** -0.5
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     # funcao que de fato vai encaminhar para geracao.
     # recebe : os indices de tokens (idx)
@@ -301,6 +356,45 @@ class GPT(nn.Module):
 
 
 #=============  GERAÇÃO  =======================
+
+# ----------------------------------------------------------
+# Simples data loader, avança pelo arquivo em chunks.
+# Bom o suficiente por enquanto.
+import tiktoken
+class DataLoaderLite:
+    def __init__(self, B, T):
+        self.B = B
+        self.T = T
+
+        # quando inicia, carregue os tokens do disco e coloque-os em memoria
+        with open('train_input.txt', 'r') as f:
+            text = f.read()
+        enc = tiktoken.get_encoding('gpt2')
+        tokens = enc.encode(text)
+        self.tokens = torch.tensor(tokens)
+        
+        print(f"Carregado {len(self.tokens)} tokens.")
+        print(f"1 epoca = {len(self.tokens) // (B * T)} batches")
+
+        # estado
+        self.current_position = 0
+
+    def next_batch(self):
+        B, T = self.B, self.T
+        buffer = self.tokens[self.current_position : self.current_position+B*T+1]
+        x = (buffer[:-1].view(B, T)) #inputs
+        y = (buffer[1:].view(B, T)) #targets
+        
+        # avance a posição do tensor
+        self.current_position += B * T
+        
+        # se carregar o proximo batch for out of bounds, reset
+        if self.current_position + (B * T + 1) > len(self.tokens):
+            self.current_position = 0
+        
+        return x, y
+# ----------------------------------------------------------
+
 #
 #
 # Única função desse código é limpar o terminal para ficar
@@ -324,23 +418,36 @@ device = torch.device(
 )
 print(f"Dispositivo: {device}")
 
-# Get Data Batch
-import tiktoken
-enc = tiktoken.get_encoding('gpt2')
-with open('train_input.txt', 'r') as f:
-    text = f.read()
-text = text[:1000]
-tokens = enc.encode(text)
-B, T = 4, 32 # Numeros para debug, um unico batch.
-buffer = torch.tensor(tokens[:B*T + 1])
-x = buffer[:-1].view(B, T)
-y = buffer[1:].view(B, T) #labels para loss
+# reprodutabilidade ao setar uma seed.
+torch.manual_seed(1337)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(1337)
 
+# Get Data Batch, usar o data loader aqui!
+train_loader = DataLoaderLite(B=8, T=64)
 
 # Get Logits
-model = GPT(GPTconfigs) # Criar o modelo
+model = GPT(GPTconfigs(vocab_size=50304)) # Criar o modelo, padrão mini 124M params.
 model.to(device)
 #logits, loss = model(x, y) # Captar os logits e o loss
+
+max_learnrate = 6e-4
+min_learnrate = max_learnrate * 0.1
+warmup_steps = 10
+max_steps = 50
+def get_learnrate(it):
+    # 1) warmup linear para iteracoes de warmup steps
+    if it < warmup_steps:
+        return max_learnrate * (it + 1) / warmup_steps
+    # 2) se it > lr_decay_iters, return min learning rate
+    if it > max_steps:
+        return min_learnrate
+    # 3) no meio, use o cosseno de decay até o min learning rate.
+    decay_ratio = (it - warmup_steps) / (max_steps - warmup_steps)
+    assert 0 <= decay_ratio <= 1
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) #coeff começa com 1 e vai para 0
+    return min_learnrate + coeff * (max_learnrate - min_learnrate)
+
 
 # ===================================================================================
 # Para calcular um Starting Point razoavel para um rede neural de raciocinio
@@ -368,17 +475,56 @@ model.to(device)
 
 # Adam alternativa ao Stochastic Radian Descent Optimizer(SGD) que estava
 # sendo usado antes e acelera a otimização. Mais compelxo de entender.
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4) 
-for i in range(50):
-   optimizer.zero_grad() # começar com um gradiente zerado.
-   logits, loss = model(x, y)
-   loss.backward() # quando pegar o loss e rolar o backpropag, adiciona ao gradiente
-   optimizer.step() # Atualizar o sparametros e diminuir o loss
-   # .item, vai converter o loss que é um tensor de um único item
-   # para um único float. Esse float vai ficar na CPU (ou gpu, ou mps).
-   # quando .item é chamado pytorch vai mandar o tensor de volta para cpu (gpu ou mps)
-   # em memoria e converter para um float que pode ser printado.
-   print(f"step {i}, loss: {loss.item()}") 
+
+# otimizador!
+# -----------------
+# aqui estamos overfittando um único batch
+# começa alto e depois cai com o tempo para um número ínfimo
+#
+# Nos não queremos overfittar um único batch, mas de fato otimizar
+# Então vamos fazer um data loader para otimização.
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8) 
+for step in range(max_steps):
+    t0 = time.time()
+   
+   # mover nossos tensores em batches para o device (cpu, gpu ou mps)
+    x, y = train_loader.next_batch()
+    x, y = x.to(device), y.to(device)
+    #_____________________________________________
+    # Como estamos pegando o proximo batch, não é esperado o overfit
+    # de nenhuma batch se quer.
+    #
+    # Aqui o esperado é que nossa Loss diminua, mas nem tanto.
+    # 
+    # Basicamente essa queda vem da deleção de tokens que nunca ocorrem
+    # Ou seja, jogar seus valores para -inf. 
+    #
+    # Mas nunca chegaremos a 0 por que a quantidade de iteracoes(50) é baixa.
+    #_____________________________________________
+    optimizer.zero_grad() # começar com um gradiente zerado.
+    logits, loss = model(x, y)
+    
+    loss.backward() # quando pegar o loss e rolar o backpropag, adiciona ao gradiente
+    
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # calcula o normal global de todos os parametros.
+
+    #determina e seta o learning rate para essa iteração
+    learnrate = get_learnrate(step)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = learnrate 
+    
+    optimizer.step() # Atualizar o sparametros e diminuir o loss
+    # .item, vai converter o loss que é um tensor de um único item
+    # para um único float. Esse float vai ficar na CPU (ou gpu, ou mps).
+    # quando .item é chamado pytorch vai mandar o tensor de volta para cpu (gpu ou mps)
+    # em memoria e converter para um float que pode ser printado.
+    
+    t1 = time.time()
+    dt = t1-t0 # diferença em milisegundos.
+    tokens_processed = train_loader.B * train_loader.T 
+    tok_p_sec = tokens_processed / dt
+
+    print(f"step {step:4d} | loss: {loss.item():.6f} | lr {learnrate} | norm: {norm:.4f} | downtime: {dt*1000:.2f}ms | tok/sec: {tok_p_sec:.2f}") 
 
 
 import sys; sys.exit(0) # Serve para pular a lógica anterior abaixo
