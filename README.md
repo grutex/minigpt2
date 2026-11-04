@@ -1,3 +1,6 @@
+Essa aplicação foi feita 95% seguindo o video: Let's reproduce GPT-2 (124M) [https://www.youtube.com/watch?v=l8pRSuU81PU] do canal 'Andrej Karpathy'
+Tem multiplas anotações sobre multiplas coisas do código 
+
 # GPT-2 próprio: treino e geração na CPU
 
 ## Passo a passo: treinar seus próprios pesos e gerar texto
