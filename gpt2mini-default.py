@@ -183,7 +183,7 @@ class GPT(nn.Module):
     # funcao que de fato vai encaminhar para geracao.
     # recebe : os indices de tokens (idx)
     # retorna: 
-    def forward(self, idx):
+    def forward(self, idx, targets=None): #Targets opicionais visto que agora temos como calcular o loss
         # idx tem o shape (B, T)
         # T nao pode ser maior que o block_size que eh o max do comprimento da sequencia. (1024)
         # cada linha dessa matriz pode ter ate `block_size` de tamanho.
@@ -214,7 +214,19 @@ class GPT(nn.Module):
         # ou seja, o token BxT+1, o token logo a direita dele; o proximo.
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x) # (B, T, vocab_size) | vocab_size eh o numero de possiveis maximos tokens para serem o proximo
-        return logits
+        loss = None #Default
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+            # O que acontece acima é que o cross_entropy não gosta de matrizes 
+            # multidimensionais então temos que passar por uma camada de achatamento
+            # para tirarmos as 3D do Tensor e colocalo em 2D.
+            #
+            # irá virar um calculo BxT bidimensional (Linhas x 1) exemplos
+            # individuais e multiplicas pelas vocab_size linhas.
+            # 
+            # Também achatamos os target para virar um Tensor BxT (Linhas x 1)
+            # então calculamos o Loss e retornamos.
+        return logits, loss
 # =============================================================================
 # Logits são scores brutos(raw) e não normalizados produzidas por um modelo de 
 # aprendizado de máquina antes de serem convertidas em probabilidades por 
@@ -312,10 +324,73 @@ device = torch.device(
 )
 print(f"Dispositivo: {device}")
 
+# Get Data Batch
+import tiktoken
+enc = tiktoken.get_encoding('gpt2')
+with open('train_input.txt', 'r') as f:
+    text = f.read()
+text = text[:1000]
+tokens = enc.encode(text)
+B, T = 4, 32 # Numeros para debug, um unico batch.
+buffer = torch.tensor(tokens[:B*T + 1])
+x = buffer[:-1].view(B, T)
+y = buffer[1:].view(B, T) #labels para loss
 
+
+# Get Logits
+model = GPT(GPTconfigs) # Criar o modelo
+model.to(device)
+#logits, loss = model(x, y) # Captar os logits e o loss
+
+# ===================================================================================
+# Para calcular um Starting Point razoavel para um rede neural de raciocinio
+# aleatorio, queremos um loss que é 1 dividido pelo tamanho do vocabulario
+# (ou seja, todos os elementos tem uma probabilidade uniforme, em prol de
+# não favorecer nenhum token na inicialização)
+# Então queremos que a probabilidade de qualquer token arbitrário é mais ou menos
+# 1/vocab_size = 1/50527 = 0.00001989772569
+#
+# Então vamos fazer uma checagem de higienização da perda (loss)
+# por que o cross_entropy loss é basicamente o negativo da probabilidade
+# logaritmica.
+#
+# -ln(1/50257) = 10.8249051197; isso é a loss esperada na inicialização.
+# 
+# que é bem perto dos nossos 11.
+# isso significa que nossa probabilidade no começa é bem difusa.
+# e com isso podemos começar a otimizar e dizer para a rede neural
+# quais elementos devem vir e em qual ordem.
+#
+# Nesse ponto podemos fazer um 'loss step backward' (loss.backward = Backpropagation)
+# calcular os gradientes e executar uma otimização.
+# ===================================================================================
+#print(loss) #11.0804 no print que é um tensor de um único elemento.
+
+# Adam alternativa ao Stochastic Radian Descent Optimizer(SGD) que estava
+# sendo usado antes e acelera a otimização. Mais compelxo de entender.
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4) 
+for i in range(50):
+   optimizer.zero_grad() # começar com um gradiente zerado.
+   logits, loss = model(x, y)
+   loss.backward() # quando pegar o loss e rolar o backpropag, adiciona ao gradiente
+   optimizer.step() # Atualizar o sparametros e diminuir o loss
+   # .item, vai converter o loss que é um tensor de um único item
+   # para um único float. Esse float vai ficar na CPU (ou gpu, ou mps).
+   # quando .item é chamado pytorch vai mandar o tensor de volta para cpu (gpu ou mps)
+   # em memoria e converter para um float que pode ser printado.
+   print(f"step {i}, loss: {loss.item()}") 
+
+
+import sys; sys.exit(0) # Serve para pular a lógica anterior abaixo
+
+
+
+# ======================================================================
 # tentativa de gerar o identico ao que temos no `.ipynb` do HuggingFace
 num_return_sequences = 5 # numero de gerações
-max_length = 100 # max length de tokens
+max_length = 30 # max length de tokens
+# ======================================================================
+
 
 # Para usarmos o modelo aleatórito, simplesmente não usamos os pesos
 # pre-treinados do HuggingFace, visto que a inicialização dos moudulos,
