@@ -6,7 +6,7 @@ import math
 import os
 import subprocess
 import time
-
+import inspect
 
 # Versao com thread padrao.
 #============================================================================
@@ -352,6 +352,29 @@ class GPT(nn.Module):
 
         return model
 
+    def configure_optimizers(self, weight_decay, learning_rate, device):
+        param_dict = {pn: p for pn, p in self.named_parameters()}
+        param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
+
+        decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
+        nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
+        optim_groups = [
+            {'params': decay_params, 'weight_decay': weight_decay},
+            {'params': nodecay_params, 'weight_decay': 0.0}
+        ]
+
+        num_decay_params = sum(p.numel() for p in decay_params)
+        num_nodecay_params = sum(p.numel() for p in nodecay_params)
+
+        print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
+        print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
+
+        # criar o otimizador AdamW e usar sua versão fundida se disponivel.
+        fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
+        use_fused = fused_available and device.type == 'cuda'
+        print(f"using fused AdamW: {use_fused}")
+        optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
+        return optimizer
 #-=-=-=-=-=-=-  FIM GPT-2  -=-=-=-=-=-=-=-=--=-=
 
 
@@ -423,8 +446,16 @@ torch.manual_seed(1337)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
+total_batch_size = 524288
+B = 4
+T = 128
+assert total_batch_size % (B * T) == 0
+grad_accum_steps = total_batch_size // (B * T)
+print(f"Total batch size requerida: {total_batch_size}")
+print(f"=> steps calculados do gradiente acumulado: {grad_accum_steps}")
+
 # Get Data Batch, usar o data loader aqui!
-train_loader = DataLoaderLite(B=8, T=64)
+train_loader = DataLoaderLite(B=B, T=T)
 
 # Get Logits
 model = GPT(GPTconfigs(vocab_size=50304)) # Criar o modelo, padrão mini 124M params.
@@ -483,13 +514,12 @@ def get_learnrate(it):
 #
 # Nos não queremos overfittar um único batch, mas de fato otimizar
 # Então vamos fazer um data loader para otimização.
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8) 
+#optimizer = torch.optim.AdamW(model.parameters(), lr=6e-4, betas=(0.9, 0.95), eps=1e-8) 
+optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, device=device)
 for step in range(max_steps):
     t0 = time.time()
    
-   # mover nossos tensores em batches para o device (cpu, gpu ou mps)
-    x, y = train_loader.next_batch()
-    x, y = x.to(device), y.to(device)
+    optimizer.zero_grad() # começar com um gradiente zerado.
     #_____________________________________________
     # Como estamos pegando o proximo batch, não é esperado o overfit
     # de nenhuma batch se quer.
@@ -501,10 +531,18 @@ for step in range(max_steps):
     #
     # Mas nunca chegaremos a 0 por que a quantidade de iteracoes(50) é baixa.
     #_____________________________________________
-    optimizer.zero_grad() # começar com um gradiente zerado.
-    logits, loss = model(x, y)
-    
-    loss.backward() # quando pegar o loss e rolar o backpropag, adiciona ao gradiente
+    loss_accum = 0.0
+    for micro_step in range(grad_accum_steps):
+        # mover nossos tensores em batches para o device (cpu, gpu ou mps)
+        x, y = train_loader.next_batch()
+        x, y = x.to(device), y.to(device)
+
+        logits, loss = model(x, y)
+
+        # diminuindo o loss para quando somarmos, recuperamos o equiaizador.
+        loss = loss / grad_accum_steps
+        loss_accum += loss.detach() #detahc é detach o tensor para manter apenas os valores
+        loss.backward() # quando pegar o loss e rolar o backpropag, adiciona ao gradiente
     
     norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # calcula o normal global de todos os parametros.
 
@@ -521,10 +559,10 @@ for step in range(max_steps):
     
     t1 = time.time()
     dt = t1-t0 # diferença em milisegundos.
-    tokens_processed = train_loader.B * train_loader.T 
+    tokens_processed = train_loader.B * train_loader.T * grad_accum_steps
     tok_p_sec = tokens_processed / dt
 
-    print(f"step {step:4d} | loss: {loss.item():.6f} | lr {learnrate} | norm: {norm:.4f} | downtime: {dt*1000:.2f}ms | tok/sec: {tok_p_sec:.2f}") 
+    print(f"step {step:4d} | loss: {loss_accum.item():.6f} | lr {learnrate:.4e} | norm: {norm:.4f} | downtime: {dt*1000:.2f}ms | tok/sec: {tok_p_sec:.2f}") 
 
 
 import sys; sys.exit(0) # Serve para pular a lógica anterior abaixo
