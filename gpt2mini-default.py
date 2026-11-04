@@ -1,38 +1,34 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+import argparse
+import hashlib
+import os
+from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import math
-import os
-import subprocess
 import time
 import inspect
 
-# Versao com thread padrao.
+# Versão com quantidade de threads configurável por --threads.
 #============================================================================
-# Se possuir uma GPU NVIDIA com CUDA, instale o torch na versao CUDA.
-# o codigo ira verificar se eh possivel usar CUDA. Se nao, ira usar a CPU.
+# A versão CPU do PyTorch é suficiente para executar este script.
+# A execução deste script usa CPU em float32, com duas threads por padrão.
 #
 # OBS:
 # Esse codigo estava crashando meu PC, provavelmente super aquecimento da CPU.
 #
 #
 # Info:
-# 6 threads (padrao PyTorch)
-# 30 tokens (padrao HuggingFace)
-# 5 sequencias (padrao HuggingFace)
+# --threads: paralelismo da CPU (padrão: 2).
+# --max-new-tokens: quantidade máxima de tokens novos (padrão: 40).
+# --num-sequences: quantidade de textos gerados (padrão: 1).
 #============================================================================
 
 #Ugly x Beautiful Numbers
-# Esses compiladores rodam em potencias de 2
-# Ugly Numbers são aqueles que não são divisiveis por potencia de 2
-# Beautiful Numbers: 128, 768, 1024, 2048 . . .
-# Ugly: 50257
-# Sempre tente remover os ugly numbers, quem sabe
-# talvez você consiga um pouco de performance por isso...
-#
-# Para resolver isso, aumente o numero ao número que é potencia de 2
-# mais proximo; ex: 50257 -> 50304, divisivel por 8, 16, 32, 64 . . .
+# Dimensões múltiplas de 128 podem favorecer kernels de GPU.
+# 50304 é múltiplo de 128, não uma potência de dois. As posições extras
+# do vocabulário devem ser excluídas da amostragem, pois não têm token no GPT-2.
 
 #-=-=-=-=-=-=-  COMECO GPT-2  -=-=-=-=-=-=-=-=--=-=
 #
@@ -120,7 +116,7 @@ class MLP(nn.Module):
         # GELU, ao contrario do ReLU, nao dispensa os valores negativos
         #
         #'tanh'~ Hyperbolic Tangent funcao para aproximacao de valores, antigamente garantia mais velocidade.
-        # hoje tanh é mais por saudosismo. o GELU pode ser usado diretamente.
+        # A aproximação tanh mantém a variante de GELU usada pelo GPT-2.
         self.gelu = nn.GELU(approximate='tanh') 
 
         self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd)
@@ -163,7 +159,7 @@ class GPTconfigs:
     n_head:int = 12 # numero de cabecas de atencao em cada bloco que rodam em paralelo.
     n_embd:int = 768 # vetor que representa cada token ao longo dos blocos; 768 números por token.
     #
-    #Assim, com os padrões atuais, o modelo processa sequências de até 1024 tokens, representados por vetores de 768 dimensões, 
+    #Assim, com os padrões atuais, o modelo processa sequências de até 1024 tokens, representados por vetores de 768 dimensões,
     # passando por 12 blocos, cada um com 12 cabeças de atenção.
 
 
@@ -201,9 +197,8 @@ class GPT(nn.Module):
         # nos deixando com um único Tensor que será usado 2 vezes
         # no Feed-Forward.
         #
-        # aqui tem ~30% dos parametros sendo poupados ao usar esse Scheme.
-        # 768 * 50257 = 38,597,376 parametros ~40M
-        # 40M/124M = 0.3225 (32%)
+        # No GPT-2 pequeno isso evita uma segunda matriz de 38.597.376
+        # parâmetros: cerca de 124M compartilhados, em vez de 163M separados.
         #
         # Por causa do Weight Tying não precisamos treinar tantos parametros
         # tornando nosso modelo mais eficiente.
@@ -219,11 +214,11 @@ class GPT(nn.Module):
 
     # Se o modulo é nn.Linear > inicie os pesos com uma normal com um
     # desvio-padrao de 0.02
-    # 
+    #
     # Se tiver um vies(bias) nessa camada > inicia com zero
-    # 
+    #
     # Se o modulo é nn.Embedding > inicie os pesos com uma normal com
-    # desvio-padrao de 0.02  
+    # desvio-padrao de 0.02
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             std = 0.02
@@ -237,12 +232,12 @@ class GPT(nn.Module):
 
     # funcao que de fato vai encaminhar para geracao.
     # recebe : os indices de tokens (idx)
-    # retorna: 
+    # retorna:
     def forward(self, idx, targets=None): #Targets opicionais visto que agora temos como calcular o loss
         # idx tem o shape (B, T)
         # T nao pode ser maior que o block_size que eh o max do comprimento da sequencia. (1024)
         # cada linha dessa matriz pode ter ate `block_size` de tamanho.
-        # 
+        #
         # basicamente:
         # B - sequencias
         # T - maximo de tokens por sequencia
@@ -272,22 +267,22 @@ class GPT(nn.Module):
         loss = None #Default
         if targets is not None:
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
-            # O que acontece acima é que o cross_entropy não gosta de matrizes 
+            # O que acontece acima é que o cross_entropy não gosta de matrizes
             # multidimensionais então temos que passar por uma camada de achatamento
             # para tirarmos as 3D do Tensor e colocalo em 2D.
             #
             # irá virar um calculo BxT bidimensional (Linhas x 1) exemplos
             # individuais e multiplicas pelas vocab_size linhas.
-            # 
+            #
             # Também achatamos os target para virar um Tensor BxT (Linhas x 1)
             # então calculamos o Loss e retornamos.
         return logits, loss
 # =============================================================================
-# Logits são scores brutos(raw) e não normalizados produzidas por um modelo de 
-# aprendizado de máquina antes de serem convertidas em probabilidades por 
+# Logits são scores brutos(raw) e não normalizados produzidas por um modelo de
+# aprendizado de máquina antes de serem convertidas em probabilidades por
 # meio de uma função de ativação como softmax ou sigmoid.
 #
-# Esses logits estao apenas precisando passar pelo Softmax para 
+# Esses logits estao apenas precisando passar pelo Softmax para
 # virarem probabilidades.
 # =============================================================================
 
@@ -373,212 +368,123 @@ class GPT(nn.Module):
         fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and device.type == 'cuda'
         print(f"using fused AdamW: {use_fused}")
-        optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
+        extra_args = {'fused': use_fused} if fused_available else {}
+        optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, **extra_args)
         return optimizer
 #-=-=-=-=-=-=-  FIM GPT-2  -=-=-=-=-=-=-=-=--=-=
 
 
-#=============  GERAÇÃO  =======================
+#=============  DADOS, TREINO E GERAÇÃO  =======================
+BASE_DIR = Path(__file__).resolve().parent
+# Cache local evita depender da pasta temporária do Windows para o tokenizer.
+os.environ.setdefault('TIKTOKEN_CACHE_DIR', str(BASE_DIR / '.cache' / 'tiktoken'))
+import tiktoken
+
+DEFAULT_CHECKPOINT = BASE_DIR / 'checkpoints' / 'last.pt'
+
 
 # ----------------------------------------------------------
 # Simples data loader, avança pelo arquivo em chunks.
+# Recebe tokens já separados em treino ou validação. Assim, os dois
+# conjuntos não compartilham exemplos e não precisamos tokenizar duas vezes.
+# Anotações originais do estudo:
+# ----------------------------------------------------------
+# Simples data loader, avança pelo arquivo em chunks.
 # Bom o suficiente por enquanto.
-import tiktoken
+# Observação sobre a versão atual: O carregamento/tokenização agora acontece em train(); o loader recebe os tokens já separados.
 class DataLoaderLite:
-    def __init__(self, B, T):
-        self.B = B
-        self.T = T
-
-        # quando inicia, carregue os tokens do disco e coloque-os em memoria
-        with open('train_input.txt', 'r') as f:
-            text = f.read()
-        enc = tiktoken.get_encoding('gpt2')
-        tokens = enc.encode(text)
-        self.tokens = torch.tensor(tokens)
-        
-        print(f"Carregado {len(self.tokens)} tokens.")
-        print(f"1 epoca = {len(self.tokens) // (B * T)} batches")
-
+    def __init__(self, B, T, tokens):
+        if B <= 0 or T <= 0:
+            raise ValueError('B e T precisam ser positivos.')
+        if len(tokens) < B * T + 1:
+            raise ValueError(f'Dados insuficientes: precisamos de {B*T+1} tokens, temos {len(tokens)}.')
+        self.B, self.T = B, T
+        self.tokens = tokens
+        # Anotações originais do estudo:
         # estado
         self.current_position = 0
 
     def next_batch(self):
         B, T = self.B, self.T
-        buffer = self.tokens[self.current_position : self.current_position+B*T+1]
-        x = (buffer[:-1].view(B, T)) #inputs
-        y = (buffer[1:].view(B, T)) #targets
-        
+        # Se carregar o próximo batch for out of bounds, reset.
+        if self.current_position + B * T + 1 > len(self.tokens):
+            self.current_position = 0
+        buffer = self.tokens[self.current_position:self.current_position + B*T + 1]
+        x = buffer[:-1].view(B, T) # inputs
+        y = buffer[1:].view(B, T)  # targets: cada posição tenta prever o token à direita
+        # Anotações originais do estudo:
         # avance a posição do tensor
         self.current_position += B * T
-        
-        # se carregar o proximo batch for out of bounds, reset
-        if self.current_position + (B * T + 1) > len(self.tokens):
-            self.current_position = 0
-        
         return x, y
-# ----------------------------------------------------------
 
-#
-#
-# Única função desse código é limpar o terminal para ficar
-# trazer uma visualização mais limpa.
-subprocess.run(
-    'cls' if os.name == 'nt' else 'clear',
-    shell=os.name == 'nt',
-    check=True,
-)
-#_______________________________________________________________________________________________
-# Garantindo por onde a pipeline do modelo irá passar
-#
-# cpu - Processador; mais lento mas funciona em todos os dispositivos
-# cuda - Compute Unified Device Architecture. Uso de GPUs NVIDIA, se possuírem arquitetura CUDA.
-# mps - Metal Performance Shaders. Uso de GPUs do MAC nos modelos 'M'.
-# ==============================================================================================
-device = torch.device(
-    'cuda' if torch.cuda.is_available()
-    else 'mps' if torch.backends.mps.is_available()
-    else 'cpu'
-)
-print(f"Dispositivo: {device}")
 
-# reprodutabilidade ao setar uma seed.
-torch.manual_seed(1337)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(1337)
-
-total_batch_size = 524288
-B = 4
-T = 128
-assert total_batch_size % (B * T) == 0
-grad_accum_steps = total_batch_size // (B * T)
-print(f"Total batch size requerida: {total_batch_size}")
-print(f"=> steps calculados do gradiente acumulado: {grad_accum_steps}")
-
-# Get Data Batch, usar o data loader aqui!
-train_loader = DataLoaderLite(B=B, T=T)
-
-# Get Logits
-model = GPT(GPTconfigs(vocab_size=50304)) # Criar o modelo, padrão mini 124M params.
-model.to(device)
-#logits, loss = model(x, y) # Captar os logits e o loss
-
-max_learnrate = 6e-4
-min_learnrate = max_learnrate * 0.1
-warmup_steps = 10
-max_steps = 50
-def get_learnrate(it):
+def get_learnrate(step, max_steps, warmup_steps, max_learnrate):
+    # Anotações originais do estudo:
     # 1) warmup linear para iteracoes de warmup steps
-    if it < warmup_steps:
-        return max_learnrate * (it + 1) / warmup_steps
     # 2) se it > lr_decay_iters, return min learning rate
-    if it > max_steps:
-        return min_learnrate
     # 3) no meio, use o cosseno de decay até o min learning rate.
-    decay_ratio = (it - warmup_steps) / (max_steps - warmup_steps)
-    assert 0 <= decay_ratio <= 1
-    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) #coeff começa com 1 e vai para 0
+    # Observação sobre a versão atual: Aqui o decay_ratio é limitado a 1; max_steps define o fim do agendamento.
+    # 1) warmup linear: começamos com atualizações menores.
+    if step < warmup_steps:
+        return max_learnrate * (step + 1) / warmup_steps
+    min_learnrate = max_learnrate * 0.1
+    # 2) após warmup, cosseno de decay até o mínimo no último passo.
+    # max(..., 1) também permite demonstrações de apenas um ou dois passos.
+    decay_ratio = min(1.0, max(0.0, (step - warmup_steps) / max(1, max_steps - 1 - warmup_steps)))
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
     return min_learnrate + coeff * (max_learnrate - min_learnrate)
 
 
-# ===================================================================================
-# Para calcular um Starting Point razoavel para um rede neural de raciocinio
-# aleatorio, queremos um loss que é 1 dividido pelo tamanho do vocabulario
-# (ou seja, todos os elementos tem uma probabilidade uniforme, em prol de
-# não favorecer nenhum token na inicialização)
-# Então queremos que a probabilidade de qualquer token arbitrário é mais ou menos
-# 1/vocab_size = 1/50527 = 0.00001989772569
-#
-# Então vamos fazer uma checagem de higienização da perda (loss)
-# por que o cross_entropy loss é basicamente o negativo da probabilidade
-# logaritmica.
-#
-# -ln(1/50257) = 10.8249051197; isso é a loss esperada na inicialização.
-# 
-# que é bem perto dos nossos 11.
-# isso significa que nossa probabilidade no começa é bem difusa.
-# e com isso podemos começar a otimizar e dizer para a rede neural
-# quais elementos devem vir e em qual ordem.
-#
-# Nesse ponto podemos fazer um 'loss step backward' (loss.backward = Backpropagation)
-# calcular os gradientes e executar uma otimização.
-# ===================================================================================
-#print(loss) #11.0804 no print que é um tensor de um único elemento.
-
-# Adam alternativa ao Stochastic Radian Descent Optimizer(SGD) que estava
-# sendo usado antes e acelera a otimização. Mais compelxo de entender.
-
-# otimizador!
-# -----------------
-# aqui estamos overfittando um único batch
-# começa alto e depois cai com o tempo para um número ínfimo
-#
-# Nos não queremos overfittar um único batch, mas de fato otimizar
-# Então vamos fazer um data loader para otimização.
-#optimizer = torch.optim.AdamW(model.parameters(), lr=6e-4, betas=(0.9, 0.95), eps=1e-8) 
-optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, device=device)
-for step in range(max_steps):
-    t0 = time.time()
-   
-    optimizer.zero_grad() # começar com um gradiente zerado.
-    #_____________________________________________
-    # Como estamos pegando o proximo batch, não é esperado o overfit
-    # de nenhuma batch se quer.
-    #
-    # Aqui o esperado é que nossa Loss diminua, mas nem tanto.
-    # 
-    # Basicamente essa queda vem da deleção de tokens que nunca ocorrem
-    # Ou seja, jogar seus valores para -inf. 
-    #
-    # Mas nunca chegaremos a 0 por que a quantidade de iteracoes(50) é baixa.
-    #_____________________________________________
-    loss_accum = 0.0
-    for micro_step in range(grad_accum_steps):
-        # mover nossos tensores em batches para o device (cpu, gpu ou mps)
-        x, y = train_loader.next_batch()
-        x, y = x.to(device), y.to(device)
-
-        logits, loss = model(x, y)
-
-        # diminuindo o loss para quando somarmos, recuperamos o equiaizador.
-        loss = loss / grad_accum_steps
-        loss_accum += loss.detach() #detahc é detach o tensor para manter apenas os valores
-        loss.backward() # quando pegar o loss e rolar o backpropag, adiciona ao gradiente
-    
-    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # calcula o normal global de todos os parametros.
-
-    #determina e seta o learning rate para essa iteração
-    learnrate = get_learnrate(step)
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = learnrate 
-    
-    optimizer.step() # Atualizar o sparametros e diminuir o loss
-    # .item, vai converter o loss que é um tensor de um único item
-    # para um único float. Esse float vai ficar na CPU (ou gpu, ou mps).
-    # quando .item é chamado pytorch vai mandar o tensor de volta para cpu (gpu ou mps)
-    # em memoria e converter para um float que pode ser printado.
-    
-    t1 = time.time()
-    dt = t1-t0 # diferença em milisegundos.
-    tokens_processed = train_loader.B * train_loader.T * grad_accum_steps
-    tok_p_sec = tokens_processed / dt
-
-    print(f"step {step:4d} | loss: {loss_accum.item():.6f} | lr {learnrate:.4e} | norm: {norm:.4f} | downtime: {dt*1000:.2f}ms | tok/sec: {tok_p_sec:.2f}") 
+@torch.no_grad()
+def evaluate(model, loader, batches):
+    # Validação mede a previsão em texto que não entra no backward.
+    # Preservamos o estado anterior do modelo, inclusive quando chamado fora do treino.
+    was_training = model.training
+    position = loader.current_position
+    model.eval()
+    loader.current_position = 0
+    try:
+        total = 0.0
+        for _ in range(batches):
+            x, y = loader.next_batch()
+            _, loss = model(x, y)
+            total += loss.item()
+        return total / batches
+    finally:
+        loader.current_position = position
+        model.train(was_training)
 
 
-import sys; sys.exit(0) # Serve para pular a lógica anterior abaixo
+def save_checkpoint(path, model, optimizer, step, loader, train_config, data_hash):
+    # state_dict contém os pesos, não uma cópia do código Python.
+    # Salvamos também AdamW, posição do loader e RNG para continuar o treino.
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = dict(format_version=1, config=asdict(model.config),
+                   model=model.state_dict(), optimizer=optimizer.state_dict(), step=step,
+                   loader_position=loader.current_position, train_config=train_config,
+                   data_hash=data_hash, rng_state=torch.get_rng_state())
+    temporary = path.with_suffix(path.suffix + '.tmp')
+    torch.save(payload, temporary)
+    # Só substituímos o último checkpoint depois de escrever o arquivo completo.
+    temporary.replace(path)
 
 
+def load_checkpoint(path):
+    # Carregamos na CPU; weights_only restringe o carregamento a tensores e dados simples.
+    payload = torch.load(Path(path), map_location='cpu', weights_only=True)
+    if payload.get('format_version') != 1:
+        raise ValueError('Formato de checkpoint incompatível com este script.')
+    return payload
 
+
+# Anotações originais do estudo:
 # ======================================================================
 # tentativa de gerar o identico ao que temos no `.ipynb` do HuggingFace
-num_return_sequences = 5 # numero de gerações
-max_length = 30 # max length de tokens
 # ======================================================================
-
-
 # Para usarmos o modelo aleatórito, simplesmente não usamos os pesos
 # pre-treinados do HuggingFace, visto que a inicialização dos moudulos,
-# como dito antes, já é random por padrão. 
+# como dito antes, já é random por padrão.
 #
 # ==============================================================
 #model = GPT.from_pretrained('gpt2') # Esses são os pesos do HF
@@ -586,79 +492,344 @@ max_length = 30 # max length de tokens
 #
 # se deixarmos completamente random, os resultados serão
 # setenças aleatórias. lixo total.
-model = GPT(GPTconfigs()) # o padrão é o mini (124M params).
-print("\n\t|| nao crashou, gerando sentenças... ||")
-print("="*100 + "\n")
-model.eval() # coloca o modelo em evaluation mode: boa pratica para nao treinar e apenas usar.
-model.to(device) # move os parametros do modelo para o dispositivo setado em 'device' (cpu, cuda ou mps).
-
-# prefix tokens
-import tiktoken
-enc = tiktoken.get_encoding('gpt2')
-#tokens = enc.encode("Hello, I'm a language model,") # apos encodar a string, recebemos uma lista de inteiro; os tokens.
-tokens = enc.encode("Peter Piper picked a peck of pickled peppers?")
-tokens = torch.tensor(tokens, dtype=torch.long) # (, 8) tokens
-tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1) # entao vamos replicar os 8 tokens, 5 vezes (5, 8) tokens
-#
-# x agora eh nosso idx
-# que iremos colocar no forward para gerarmos o
-# nosso 9 token em cada uma das 5 linhas.
-x = tokens.to(device) # tokens e modelo precisam estar no mesmo dispositivo.
-
-# generate!
-# agora para a geracao em si.
-# temos nosso x, que agora eh: (B, T) Batch = 5 , Time = 8
-#
-# colocar a `seed` em 42
-#
-# em cada iteracao desse codigo estamos adicionando
-# uma coluna de novos indices em cada um dessas linhas
-# em cada uma dessas linhas, novos indices serao `appended`(adicionados/juntos)
-# a nova sequencia, a partir do que vamos fazendo a amostragem.
-#
-# basicamente, prevemos o proximo elemento e o adicionamos.
-torch.manual_seed(42) # as respostas sao geradas a partir dessa seed, sempre serão as mesmas.
-if device.type == 'cuda':
-    torch.cuda.manual_seed(42)
-while x.size(1) < max_length:
-    # encaminhar o modelo para pegar os logits
-    # `no_grad` - no gradient, desativa o cálculo de gradientes fazendo com que o 
-    # pyTorch nao possa executar backpropagation, economizando memoria e processamento.
-    # nao precisamos treinar nada, apenas gerar; logo nao precisamos de backpropagation.
-    with torch.no_grad(): 
-        logits = model(x) # (B, T, vocab_size)
-        # pegar os logits da ultima posicao
-        # apenas nos importamos com os logits da ultima coluna.
-        logits = logits[:, -1, :] # (B, vocab_size)
-        # pegar as probabilidades
-        probs = F.softmax(logits, dim=-1)
-
-        # pegar os top-k 50 das amostras (padrao do huggingface)
-        # ;restrigir a escolha aos 50 tokens mais provaveis.
-        # restrigir ao top-50 ajuda o modelo a nao sair do caminho,
-        # a se perder tao facilmente do contexto dos tokens.
+# Observação sobre a versão atual: Na geração atual escolhemos pesos treinados ou pretrained. Pesos aleatórios servem como referência inicial.
+@torch.inference_mode()
+def generate(model, tokens, max_new_tokens, temperature=0.8, top_k=50):
+    if not tokens or max_new_tokens < 0 or temperature <= 0 or top_k <= 0:
+        raise ValueError('Informe tokens iniciais, temperatura/top-k positivos e quantidade de tokens >= 0.')
+    was_training = model.training
+    model.eval()
+    # Modelo e tokens precisam estar no mesmo dispositivo.
+    device = next(model.parameters()).device
+    # Anotações originais do estudo:
+    # prefix tokens
+    #tokens = enc.encode("Hello, I'm a language model,") # apos encodar a string, recebemos uma lista de inteiro; os tokens.
+    #
+    # x agora eh nosso idx
+    # que iremos colocar no forward para gerarmos o
+    # nosso 9 token em cada uma das 5 linhas.
+    # Observação sobre a versão atual: O exemplo acima usava cinco sequências com oito tokens. Agora geramos uma por vez; T depende do prompt.
+    x = torch.tensor([tokens], dtype=torch.long, device=device)
+    try:
+        # Anotações originais do estudo:
+        # generate!
+        # agora para a geracao em si.
+        # temos nosso x, que agora eh: (B, T) Batch = 5 , Time = 8
         #
-        # topk_probs = matriz(5, 50) ; topk_indices = matriz(5, 50)
-        topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
+        # colocar a `seed` em 42
+        #
+        # em cada iteracao desse codigo estamos adicionando
+        # uma coluna de novos indices em cada um dessas linhas
+        # em cada uma dessas linhas, novos indices serao `appended`(adicionados/juntos)
+        # a nova sequencia, a partir do que vamos fazendo a amostragem.
+        #
+        # basicamente, prevemos o proximo elemento e o adicionamos.
+        # Observação sobre a versão atual: O exemplo original fixava a seed em 42. Agora --seed controla isso em main(); B=1 nesta função.
+        for _ in range(max_new_tokens):
+            # O GPT-2 tem uma janela máxima de contexto. Guardamos todo o texto,
+            # mas encaminhamos só os últimos block_size tokens em cada passagem.
+            context = x[:, -model.config.block_size:]
+            # Anotações originais do estudo:
+            # encaminhar o modelo para pegar os logits
+            # `no_grad` - no gradient, desativa o cálculo de gradientes fazendo com que o
+            # pyTorch nao possa executar backpropagation, economizando memoria e processamento.
+            # nao precisamos treinar nada, apenas gerar; logo nao precisamos de backpropagation.
+            # Observação sobre a versão atual: Aqui inference_mode cobre a função inteira, também desativando o autograd.
+            logits, _ = model(context)
+            # Anotações originais do estudo:
+            # pegar os logits da ultima posicao
+            # apenas nos importamos com os logits da ultima coluna.
+            logits = logits[:, -1, :] / temperature
+            # 50304 inclui padding; tiktoken só conhece IDs de 0 até 50256.
+            valid_vocab = min(50257, logits.size(-1))
+            logits = logits[:, :valid_vocab]
+            # Anotações originais do estudo:
+            # pegar os top-k 50 das amostras (padrao do huggingface)
+            # ;restrigir a escolha aos 50 tokens mais provaveis.
+            # restrigir ao top-50 ajuda o modelo a nao sair do caminho,
+            # a se perder tao facilmente do contexto dos tokens.
+            #
+            # topk_probs = matriz(5, 50) ; topk_indices = matriz(5, 50)
+            # Observação sobre a versão atual: Aqui os tensores têm shape (1, k); top-k é configurável, com padrão 50.
+            values, indices = torch.topk(logits, min(top_k, valid_vocab), dim=-1)
+            # Anotações originais do estudo:
+            # pegar as probabilidades
+            probs = F.softmax(values, dim=-1)
+            # Anotações originais do estudo:
+            # selecione um token das top-k probabilidades
+            ix = torch.multinomial(probs, 1)
+            # Anotações originais do estudo:
+            # pegues seus indices correspondentes
+            xcol = torch.gather(indices, -1, ix)
+            # Anotações originais do estudo:
+            # `append`(junte) a sequencia
+            x = torch.cat((x, xcol), dim=-1)
+            if xcol.item() == 50256: # endoftext: fim da geração
+                break
+        return x[0].tolist()
+    finally:
+        model.train(was_training)
 
-        # selecione um token das top-k probabilidades
-        ix = torch.multinomial(topk_probs, 1)
 
-        # pegues seus indices correspondentes
-        xcol = torch.gather(topk_indices, -1, ix)
+def train(args):
+    if not args.resume and Path(args.checkpoint).exists():
+        raise ValueError('Checkpoint já existe: use --resume ou escolha outro --checkpoint.')
+    checkpoint = load_checkpoint(args.checkpoint) if args.resume else None
+    # Retomar preserva B, T, acumulação e hiperparâmetros do checkpoint.
+    # --steps continua sendo o TOTAL desejado de atualizações (não passos extras).
+    settings = checkpoint['train_config'] if checkpoint else dict(
+        batch_size=args.batch_size, seq_len=args.seq_len,
+        grad_accum_steps=args.grad_accum_steps, learning_rate=args.learning_rate,
+        warmup_steps=args.warmup_steps, weight_decay=args.weight_decay)
+    B, T = settings['batch_size'], settings['seq_len']
+    grad_accum_steps = settings['grad_accum_steps']
+    if min(B, T, grad_accum_steps, args.steps, args.eval_every, args.eval_batches, args.save_every) <= 0:
+        raise ValueError('Tamanhos, passos e intervalos devem ser positivos.')
+    if settings['learning_rate'] <= 0 or settings['weight_decay'] < 0 or settings['warmup_steps'] < 0:
+        raise ValueError('Learning rate deve ser positivo; warmup e weight decay não podem ser negativos.')
+    if settings['warmup_steps'] >= args.steps:
+        raise ValueError('warmup-steps deve ser menor que steps; para testes curtos, use --warmup-steps 0.')
 
-        # `append`(junte) a sequencia
-        x = torch.cat((x, xcol), dim=-1) 
+    raw = Path(args.data).read_bytes()
+    data_hash = hashlib.sha256(raw).hexdigest()
+    if checkpoint and checkpoint['data_hash'] != data_hash:
+        raise ValueError('O texto mudou desde o checkpoint. Use o mesmo arquivo para retomar.')
+    # Anotações originais do estudo:
+    # quando inicia, carregue os tokens do disco e coloque-os em memoria
+    enc = tiktoken.get_encoding('gpt2')
+    tokens = torch.tensor(enc.encode_ordinary(raw.decode('utf-8')), dtype=torch.long)
+    # Reservamos os últimos 10% para validação, sem embaralhar os trechos.
+    split = int(len(tokens) * 0.9)
+    # Anotações originais do estudo:
+    # Get Data Batch, usar o data loader aqui!
+    train_loader = DataLoaderLite(B, T, tokens[:split])
+    val_loader = DataLoaderLite(B, T, tokens[split:])
+    print(f'Tokens: {split} treino / {len(tokens)-split} validação', flush=True)
+    print(f'B={B}, T={T}, acumulação={grad_accum_steps}; {B*T*grad_accum_steps} tokens/atualização', flush=True)
 
-# print o texto que foi gerado.
-for i in range(num_return_sequences):
-    tokens = x[i, :max_length].tolist()
-    decoded = enc.decode(tokens)
-    print(f"{i+1}> {decoded} \n")
-# A diferença de geração para o HuggingFace no 'play.ipynb'
-# se da devido a algum parametro do 'pipeline()' do HF.
-# mas se jogarmos esse mesmo código lá, a mesma frase será gerada.
-print("="*100)
+    if checkpoint:
+        config = GPTconfigs(**checkpoint['config'])
+    else:
+        # Mesmos componentes do GPT-2, com dimensões menores para aprender na CPU.
+        # --model gpt2 mantém as dimensões originais do GPT-2 de 124M parâmetros.
+        profile = dict(n_layer=4, n_head=4, n_embd=128, block_size=128) if args.model == 'small' else {}
+        for name in ('n_layer', 'n_head', 'n_embd', 'block_size'):
+            if getattr(args, name) is not None:
+                profile[name] = getattr(args, name)
+        config = GPTconfigs(vocab_size=50304, **profile)
+    if min(config.n_layer, config.n_head, config.n_embd, config.block_size) <= 0 or config.n_embd % config.n_head:
+        raise ValueError('Dimensões positivas; n_embd precisa ser divisível por n_head.')
+    if T > config.block_size:
+        raise ValueError('seq-len não pode ultrapassar block_size.')
+    # Anotações originais do estudo:
+    # Get Logits
+    #logits, loss = model(x, y) # Captar os logits e o loss
+    # Observação sobre a versão atual: No perfil small reduzimos as dimensões; --model gpt2 seleciona a escala original.
+    model = GPT(config).to('cpu')
+    print(f'Parâmetros únicos: {sum(p.numel() for p in model.parameters()):,}', flush=True)
+    # Anotações originais do estudo:
+    # ===================================================================================
+    # Para calcular um Starting Point razoavel para um rede neural de raciocinio
+    # aleatorio, queremos um loss que é 1 dividido pelo tamanho do vocabulario
+    # (ou seja, todos os elementos tem uma probabilidade uniforme, em prol de
+    # não favorecer nenhum token na inicialização)
+    # Então queremos que a probabilidade de qualquer token arbitrário é mais ou menos
+    # 1/vocab_size = 1/50527 = 0.00001989772569
+    #
+    # Então vamos fazer uma checagem de higienização da perda (loss)
+    # por que o cross_entropy loss é basicamente o negativo da probabilidade
+    # logaritmica.
+    #
+    # -ln(1/50257) = 10.8249051197; isso é a loss esperada na inicialização.
+    #
+    # que é bem perto dos nossos 11.
+    # isso significa que nossa probabilidade no começa é bem difusa.
+    # e com isso podemos começar a otimizar e dizer para a rede neural
+    # quais elementos devem vir e em qual ordem.
+    #
+    # Nesse ponto podemos fazer um 'loss step backward' (loss.backward = Backpropagation)
+    # calcular os gradientes e executar uma otimização.
+    # ===================================================================================
+    #print(loss) #11.0804 no print que é um tensor de um único elemento.
+    # Adam alternativa ao Stochastic Radian Descent Optimizer(SGD) que estava
+    # sendo usado antes e acelera a otimização. Mais compelxo de entender.
+    # otimizador!
+    # -----------------
+    # aqui estamos overfittando um único batch
+    # começa alto e depois cai com o tempo para um número ínfimo
+    #
+    # Nos não queremos overfittar um único batch, mas de fato otimizar
+    # Então vamos fazer um data loader para otimização.
+    #optimizer = torch.optim.AdamW(model.parameters(), lr=6e-4, betas=(0.9, 0.95), eps=1e-8)
+    # Observação sobre a versão atual: Esclarecimentos: 1/vocab_size é a PROBABILIDADE uniforme; a loss é ln(vocab_size). O ID correto é 50257 (50304 com padding). SGD significa Stochastic Gradient Descent. O overfit de um único batch era a etapa anterior do vídeo.
+    optimizer = model.configure_optimizers(settings['weight_decay'], settings['learning_rate'], torch.device('cpu'))
+    start_step = 0
+    if checkpoint:
+        model.load_state_dict(checkpoint['model'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        start_step = checkpoint['step']
+        train_loader.current_position = checkpoint['loader_position']
+        torch.set_rng_state(checkpoint['rng_state'])
+        print(f'Retomando após {start_step} atualizações completas.', flush=True)
+        del checkpoint # os pesos já foram copiados; evita mantê-los duas vezes na RAM
+    if start_step >= args.steps:
+        raise ValueError('Checkpoint já atingiu steps; informe um total maior para continuar.')
+    model.train()
+    try:
+        for step in range(start_step, args.steps):
+            t0 = time.perf_counter()
+            optimizer.zero_grad(set_to_none=True)
+            # Anotações originais do estudo:
+            #_____________________________________________
+            # Como estamos pegando o proximo batch, não é esperado o overfit
+            # de nenhuma batch se quer.
+            #
+            # Aqui o esperado é que nossa Loss diminua, mas nem tanto.
+            #
+            # Basicamente essa queda vem da deleção de tokens que nunca ocorrem
+            # Ou seja, jogar seus valores para -inf.
+            #
+            # Mas nunca chegaremos a 0 por que a quantidade de iteracoes(50) é baixa.
+            #_____________________________________________
+            # Observação sobre a versão atual: Batches diferentes não impedem overfit. A loss diminui ajustando scores dos alvos, sem deletar tokens ou obrigatoriamente levar logits a -inf. Cinquenta passos não garantem loss baixa.
+            loss_accum = 0.0
+            for micro_step in range(grad_accum_steps):
+                # Anotações originais do estudo:
+                # mover nossos tensores em batches para o device (cpu, gpu ou mps)
+                # Observação sobre a versão atual: Nesta versão os dados e o modelo já estão na CPU, então não precisamos de .to(device) aqui.
+                x, y = train_loader.next_batch()
+                # CPU usa float32. Mixed precision do vídeo é uma otimização de hardware.
+                logits, loss = model(x, y)
+                # Dividimos antes de somar os gradientes para obter a média do batch efetivo.
+                # Anotações originais do estudo:
+                # diminuindo o loss para quando somarmos, recuperamos o equiaizador.
+                # Observação sobre a versão atual: A divisão faz a soma dos gradientes corresponder à média dos microbatches.
+                loss = loss / grad_accum_steps
+                # Anotações originais do estudo:
+                # .item, vai converter o loss que é um tensor de um único item
+                # para um único float. Esse float vai ficar na CPU (ou gpu, ou mps).
+                # quando .item é chamado pytorch vai mandar o tensor de volta para cpu (gpu ou mps)
+                # em memoria e converter para um float que pode ser printado.
+                # Observação sobre a versão atual: Aqui a execução é CPU: .item() extrai o escalar; não há transferência da GPU.
+                loss_accum += loss.detach().item()
+                loss.backward()
+                del logits, loss
+            # Calcula a norma global e limita gradientes muito grandes.
+            norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            # Anotações originais do estudo:
+            #determina e seta o learning rate para essa iteração
+            learnrate = get_learnrate(step, args.steps, settings['warmup_steps'], settings['learning_rate'])
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = learnrate
+            optimizer.step()
+            dt = time.perf_counter() - t0 # segundos; multiplicamos por 1000 no print
+            tokens_processed = B * T * grad_accum_steps
+            print(f'step {step+1:4d}/{args.steps} | loss {loss_accum:.6f} | lr {learnrate:.4e} | '
+                  f'norm {norm.item():.4f} | tempo {dt*1000:.2f}ms | tok/sec {tokens_processed/dt:.2f}', flush=True)
+            # A loss diminui quando os scores dos próximos tokens corretos melhoram.
+            # Isso não deleta tokens do vocabulário e não garante generalização.
+            if (step+1) % args.eval_every == 0 or step+1 == args.steps:
+                val_loss = evaluate(model, val_loader, args.eval_batches)
+                print(f'  validação: loss {val_loss:.6f}', flush=True)
+            if (step+1) % args.save_every == 0 or step+1 == args.steps:
+                save_checkpoint(args.checkpoint, model, optimizer, step+1, train_loader, settings, data_hash)
+                print(f'  checkpoint salvo: {args.checkpoint}', flush=True)
+    except KeyboardInterrupt:
+        # Evitamos salvar uma atualização incompleta; o último arquivo completo continua válido.
+        print('Treino interrompido. Para retomar, use o último checkpoint salvo.', flush=True)
+        return
+    print('Treino concluído. Use o modo generate para carregar os pesos e gerar texto.', flush=True)
+
+
+def run_generation(args):
+    if args.pretrained:
+        # Hugging Face fornece apenas os pesos. O forward e a amostragem são os nossos.
+        model = GPT.from_pretrained(args.pretrained).to('cpu')
+        print(f'Pesos pretrained: {args.pretrained}', flush=True)
+    else:
+        checkpoint = load_checkpoint(args.checkpoint or DEFAULT_CHECKPOINT)
+        del checkpoint['optimizer'] # inferência não precisa dos momentos do AdamW
+        model = GPT(GPTconfigs(**checkpoint['config']))
+        model.load_state_dict(checkpoint['model'])
+        # A geração não utiliza os estados do AdamW; liberamos a memória do checkpoint.
+        print(f"Pesos do treino: {checkpoint['step']} atualizações", flush=True)
+        del checkpoint
+    enc = tiktoken.get_encoding('gpt2')
+    tokens = enc.encode_ordinary(args.prompt) or [enc.eot_token]
+    for i in range(args.num_sequences):
+        output = generate(model, tokens, args.max_new_tokens, args.temperature, args.top_k)
+        # Anotações originais do estudo:
+        # print o texto que foi gerado.
+        # A diferença de geração para o HuggingFace no 'play.ipynb'
+        # se da devido a algum parametro do 'pipeline()' do HF.
+        # mas se jogarmos esse mesmo código lá, a mesma frase será gerada.
+        # Observação sobre a versão atual: Para comparar com Hugging Face precisamos alinhar pesos, prompt e amostragem. Diferenças numéricas e de ambiente também podem alterar a sequência.
+        print(f'{i+1}> {enc.decode(output)}', flush=True)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description='GPT-2 próprio: treino e geração na CPU.')
+    subparsers = parser.add_subparsers(dest='mode', required=True)
+    training = subparsers.add_parser('train', help='Treinar com pesos aleatórios ou retomar checkpoint.')
+    training.add_argument('--data', type=Path, default=BASE_DIR / 'train_input.txt')
+    training.add_argument('--checkpoint', type=Path, default=DEFAULT_CHECKPOINT)
+    training.add_argument('--resume', action='store_true')
+    training.add_argument('--model', choices=('small', 'gpt2'), default='small')
+    training.add_argument('--batch-size', type=int, default=2)
+    training.add_argument('--seq-len', type=int, default=64)
+    training.add_argument('--grad-accum-steps', type=int, default=1)
+    training.add_argument('--steps', type=int, default=50)
+    training.add_argument('--learning-rate', type=float, default=3e-4)
+    training.add_argument('--warmup-steps', type=int, default=5)
+    training.add_argument('--weight-decay', type=float, default=0.1)
+    training.add_argument('--eval-every', type=int, default=10)
+    training.add_argument('--eval-batches', type=int, default=2)
+    training.add_argument('--save-every', type=int, default=10)
+    for name in ('n-layer', 'n-head', 'n-embd', 'block-size'):
+        training.add_argument('--' + name, type=int, default=None)
+    generation = subparsers.add_parser('generate', help='Gerar usando a nossa implementação.')
+    source = generation.add_mutually_exclusive_group()
+    source.add_argument('--checkpoint', type=Path)
+    source.add_argument('--pretrained', choices=('gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'))
+    generation.add_argument('--prompt', default='First Citizen:')
+    generation.add_argument('--max-new-tokens', type=int, default=40)
+    generation.add_argument('--temperature', type=float, default=0.8)
+    generation.add_argument('--top-k', type=int, default=50)
+    generation.add_argument('--num-sequences', type=int, default=1)
+    for command in (training, generation):
+        command.add_argument('--threads', type=int, default=2)
+        command.add_argument('--seed', type=int, default=1337)
+    args = parser.parse_args(argv)
+    if args.threads <= 0:
+        parser.error('threads deve ser positivo.')
+    if args.mode == 'generate' and (args.num_sequences <= 0 or args.max_new_tokens < 0 or args.temperature <= 0 or args.top_k <= 0):
+        parser.error('Verifique num-sequences, max-new-tokens, temperature e top-k.')
+    # Anotações originais do estudo:
+    #_______________________________________________________________________________________________
+    # Garantindo por onde a pipeline do modelo irá passar
+    #
+    # cpu - Processador; mais lento mas funciona em todos os dispositivos
+    # cuda - Compute Unified Device Architecture. Uso de GPUs NVIDIA, se possuírem arquitetura CUDA.
+    # mps - Metal Performance Shaders. Uso de GPUs do MAC nos modelos 'M'.
+    # ==============================================================================================
+    # Observação sobre a versão atual: As alternativas acima são as do vídeo. Este script escolhe CPU explicitamente.
+    torch.set_num_threads(args.threads)
+    # Anotações originais do estudo:
+    # reprodutabilidade ao setar uma seed.
+    torch.manual_seed(args.seed)
+    print(f'Dispositivo: cpu | threads: {args.threads}', flush=True)
+    try:
+        if args.mode == 'train':
+            train(args)
+        else:
+            run_generation(args)
+    except (ValueError, FileNotFoundError) as exc:
+        parser.error(str(exc))
+
+
+# Importar este arquivo só define classes/funções; não dispara um treino.
+if __name__ == '__main__':
+    main()
 
 
 # =============================================================================
