@@ -2,6 +2,7 @@ from dataclasses import dataclass, asdict
 import argparse
 import hashlib
 import os
+import subprocess
 from pathlib import Path
 import torch
 import torch.nn as nn
@@ -13,7 +14,8 @@ import inspect
 # Versão com quantidade de threads configurável por --threads.
 #============================================================================
 # A versão CPU do PyTorch é suficiente para executar este script.
-# A execução deste script usa CPU em float32, com duas threads por padrão.
+# O script verifica CUDA, depois MPS, e usa CPU quando nenhuma GPU está disponível.
+# Usamos float32; --threads controla o paralelismo das operações na CPU.
 #
 # OBS:
 # Esse codigo estava crashando meu PC, provavelmente super aquecimento da CPU.
@@ -441,12 +443,14 @@ def evaluate(model, loader, batches):
     # Preservamos o estado anterior do modelo, inclusive quando chamado fora do treino.
     was_training = model.training
     position = loader.current_position
+    device = next(model.parameters()).device
     model.eval()
     loader.current_position = 0
     try:
         total = 0.0
         for _ in range(batches):
             x, y = loader.next_batch()
+            x, y = x.to(device), y.to(device)
             _, loss = model(x, y)
             total += loss.item()
         return total / batches
@@ -464,6 +468,12 @@ def save_checkpoint(path, model, optimizer, step, loader, train_config, data_has
                    model=model.state_dict(), optimizer=optimizer.state_dict(), step=step,
                    loader_position=loader.current_position, train_config=train_config,
                    data_hash=data_hash, rng_state=torch.get_rng_state())
+    device = next(model.parameters()).device
+    payload['device_type'] = device.type
+    if device.type == 'cuda':
+        payload['device_rng_state'] = torch.cuda.get_rng_state(device)
+    elif device.type == 'mps':
+        payload['device_rng_state'] = torch.mps.get_rng_state()
     temporary = path.with_suffix(path.suffix + '.tmp')
     torch.save(payload, temporary)
     # Só substituímos o último checkpoint depois de escrever o arquivo completo.
@@ -572,6 +582,7 @@ def generate(model, tokens, max_new_tokens, temperature=0.8, top_k=50):
 
 
 def train(args):
+    device = args.device
     if not args.resume and Path(args.checkpoint).exists():
         raise ValueError('Checkpoint já existe: use --resume ou escolha outro --checkpoint.')
     checkpoint = load_checkpoint(args.checkpoint) if args.resume else None
@@ -625,7 +636,7 @@ def train(args):
     # Get Logits
     #logits, loss = model(x, y) # Captar os logits e o loss
     # Observação sobre a versão atual: No perfil small reduzimos as dimensões; --model gpt2 seleciona a escala original.
-    model = GPT(config).to('cpu')
+    model = GPT(config).to(device)
     print(f'Parâmetros únicos: {sum(p.numel() for p in model.parameters()):,}', flush=True)
     # Anotações originais do estudo:
     # ===================================================================================
@@ -662,14 +673,24 @@ def train(args):
     # Então vamos fazer um data loader para otimização.
     #optimizer = torch.optim.AdamW(model.parameters(), lr=6e-4, betas=(0.9, 0.95), eps=1e-8)
     # Observação sobre a versão atual: Esclarecimentos: 1/vocab_size é a PROBABILIDADE uniforme; a loss é ln(vocab_size). O ID correto é 50257 (50304 com padding). SGD significa Stochastic Gradient Descent. O overfit de um único batch era a etapa anterior do vídeo.
-    optimizer = model.configure_optimizers(settings['weight_decay'], settings['learning_rate'], torch.device('cpu'))
+    optimizer = model.configure_optimizers(settings['weight_decay'], settings['learning_rate'], device)
     start_step = 0
     if checkpoint:
         model.load_state_dict(checkpoint['model'])
+        # Um checkpoint CUDA também pode ser retomado em CPU/MPS e vice-versa.
+        # O modo fused depende do dispositivo atual, não do usado no salvamento.
+        for saved, current in zip(checkpoint['optimizer']['param_groups'], optimizer.param_groups):
+            if 'fused' in current:
+                saved['fused'] = current['fused']
         optimizer.load_state_dict(checkpoint['optimizer'])
         start_step = checkpoint['step']
         train_loader.current_position = checkpoint['loader_position']
         torch.set_rng_state(checkpoint['rng_state'])
+        if checkpoint.get('device_type') == device.type and 'device_rng_state' in checkpoint:
+            if device.type == 'cuda':
+                torch.cuda.set_rng_state(checkpoint['device_rng_state'], device)
+            elif device.type == 'mps':
+                torch.mps.set_rng_state(checkpoint['device_rng_state'])
         print(f'Retomando após {start_step} atualizações completas.', flush=True)
         del checkpoint # os pesos já foram copiados; evita mantê-los duas vezes na RAM
     if start_step >= args.steps:
@@ -677,6 +698,7 @@ def train(args):
     model.train()
     try:
         for step in range(start_step, args.steps):
+            synchronize(device)
             t0 = time.perf_counter()
             optimizer.zero_grad(set_to_none=True)
             # Anotações originais do estudo:
@@ -696,9 +718,10 @@ def train(args):
             for micro_step in range(grad_accum_steps):
                 # Anotações originais do estudo:
                 # mover nossos tensores em batches para o device (cpu, gpu ou mps)
-                # Observação sobre a versão atual: Nesta versão os dados e o modelo já estão na CPU, então não precisamos de .to(device) aqui.
+                # Dados e modelo precisam ficar no mesmo dispositivo selecionado.
                 x, y = train_loader.next_batch()
-                # CPU usa float32. Mixed precision do vídeo é uma otimização de hardware.
+                x, y = x.to(device), y.to(device)
+                # Usamos float32 também na GPU; mixed precision é uma otimização opcional.
                 logits, loss = model(x, y)
                 # Dividimos antes de somar os gradientes para obter a média do batch efetivo.
                 # Anotações originais do estudo:
@@ -710,7 +733,7 @@ def train(args):
                 # para um único float. Esse float vai ficar na CPU (ou gpu, ou mps).
                 # quando .item é chamado pytorch vai mandar o tensor de volta para cpu (gpu ou mps)
                 # em memoria e converter para um float que pode ser printado.
-                # Observação sobre a versão atual: Aqui a execução é CPU: .item() extrai o escalar; não há transferência da GPU.
+                # Na CPU só extraímos o escalar; em CUDA/MPS isso pode sincronizar a GPU.
                 loss_accum += loss.detach().item()
                 loss.backward()
                 del logits, loss
@@ -722,6 +745,8 @@ def train(args):
             for param_group in optimizer.param_groups:
                 param_group['lr'] = learnrate
             optimizer.step()
+            # GPUs executam operações de forma assíncrona: aguardamos antes de medir o tempo.
+            synchronize(device)
             dt = time.perf_counter() - t0 # segundos; multiplicamos por 1000 no print
             tokens_processed = B * T * grad_accum_steps
             print(f'step {step+1:4d}/{args.steps} | loss {loss_accum:.6f} | lr {learnrate:.4e} | '
@@ -742,15 +767,17 @@ def train(args):
 
 
 def run_generation(args):
+    device = args.device
     if args.pretrained:
         # Hugging Face fornece apenas os pesos. O forward e a amostragem são os nossos.
-        model = GPT.from_pretrained(args.pretrained).to('cpu')
+        model = GPT.from_pretrained(args.pretrained).to(device)
         print(f'Pesos pretrained: {args.pretrained}', flush=True)
     else:
         checkpoint = load_checkpoint(args.checkpoint or DEFAULT_CHECKPOINT)
         del checkpoint['optimizer'] # inferência não precisa dos momentos do AdamW
         model = GPT(GPTconfigs(**checkpoint['config']))
         model.load_state_dict(checkpoint['model'])
+        model.to(device)
         # A geração não utiliza os estados do AdamW; liberamos a memória do checkpoint.
         print(f"Pesos do treino: {checkpoint['step']} atualizações", flush=True)
         del checkpoint
@@ -767,8 +794,29 @@ def run_generation(args):
         print(f'{i+1}> {enc.decode(output)}', flush=True)
 
 
+def select_device():
+    # Prioridade original: primeiro CUDA, depois MPS, por último CPU.
+    return torch.device('cuda' if torch.cuda.is_available()
+                        else 'mps' if torch.backends.mps.is_available()
+                        else 'cpu')
+
+
+def synchronize(device):
+    if device.type == 'cuda':
+        torch.cuda.synchronize(device)
+    elif device.type == 'mps':
+        torch.mps.synchronize()
+
+
+def clear_terminal():
+    # Única função desse código é limpar o terminal para ficar
+    # trazer uma visualização mais limpa, como no código original.
+    subprocess.run('cls' if os.name == 'nt' else 'clear',
+                   shell=os.name == 'nt', check=False)
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='GPT-2 próprio: treino e geração na CPU.')
+    parser = argparse.ArgumentParser(description='GPT-2 próprio: treino e geração com seleção automática de dispositivo.')
     subparsers = parser.add_subparsers(dest='mode', required=True)
     training = subparsers.add_parser('train', help='Treinar com pesos aleatórios ou retomar checkpoint.')
     training.add_argument('--data', type=Path, default=BASE_DIR / 'train_input.txt')
@@ -812,12 +860,15 @@ def main(argv=None):
     # cuda - Compute Unified Device Architecture. Uso de GPUs NVIDIA, se possuírem arquitetura CUDA.
     # mps - Metal Performance Shaders. Uso de GPUs do MAC nos modelos 'M'.
     # ==============================================================================================
-    # Observação sobre a versão atual: As alternativas acima são as do vídeo. Este script escolhe CPU explicitamente.
+    # Selecionamos a primeira alternativa disponível nesta ordem: CUDA, MPS, CPU.
+    args.device = select_device()
+    if args.mode == 'generate':
+        clear_terminal()
     torch.set_num_threads(args.threads)
     # Anotações originais do estudo:
     # reprodutabilidade ao setar uma seed.
     torch.manual_seed(args.seed)
-    print(f'Dispositivo: cpu | threads: {args.threads}', flush=True)
+    print(f'Dispositivo: {args.device} | threads CPU: {args.threads}', flush=True)
     try:
         if args.mode == 'train':
             train(args)

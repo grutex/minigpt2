@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import torch
 
@@ -25,6 +26,31 @@ class GPTTests(unittest.TestCase):
     def model(self):
         return gpt.GPT(gpt.GPTconfigs(block_size=8, vocab_size=32,
                                      n_layer=2, n_head=2, n_embd=16))
+
+    def test_device_priority(self):
+        for cuda, mps, expected in ((True, True, 'cuda'), (False, True, 'mps'), (False, False, 'cpu')):
+            with self.subTest(expected=expected):
+                with mock.patch.object(torch.cuda, 'is_available', return_value=cuda), \
+                     mock.patch.object(torch.backends.mps, 'is_available', return_value=mps) as mps_check:
+                    self.assertEqual(gpt.select_device().type, expected)
+                    if cuda:
+                        mps_check.assert_not_called()
+
+    def test_generation_clears_terminal(self):
+        with mock.patch.object(gpt, 'clear_terminal') as clear, \
+             mock.patch.object(gpt, 'select_device', return_value=torch.device('cpu')), \
+             mock.patch.object(gpt, 'run_generation') as generate, \
+             contextlib.redirect_stdout(io.StringIO()):
+            gpt.main(['generate'])
+        clear.assert_called_once_with()
+        self.assertEqual(generate.call_args.args[0].device.type, 'cpu')
+
+    def test_clear_terminal_uses_original_platform_command(self):
+        for platform, command, shell in (('nt', 'cls', True), ('posix', 'clear', False)):
+            with mock.patch.object(gpt.os, 'name', platform), \
+                 mock.patch.object(gpt.subprocess, 'run') as run:
+                gpt.clear_terminal()
+                run.assert_called_once_with(command, shell=shell, check=False)
 
     def test_causality_and_backward(self):
         model = self.model()

@@ -1,7 +1,12 @@
 Essa aplicação foi feita 95% seguindo o video: Let's reproduce GPT-2 (124M) [https://www.youtube.com/watch?v=l8pRSuU81PU] do canal 'Andrej Karpathy'
 Tem multiplas anotações sobre multiplas coisas do código que você não encontrará no código completo.
 
-# GPT-2 próprio: treino e geração na CPU
+# GPT-2 próprio: treino e geração
+
+O dispositivo é escolhido automaticamente: **CUDA → MPS → CPU**. Essa seleção vale
+para treino, validação e geração, inclusive ao carregar checkpoints. Na sua máquina,
+sem CUDA/MPS disponíveis, o programa usa CPU. O modo `generate` limpa o terminal
+antes de começar, usando `cls` no Windows ou `clear` nos demais sistemas.
 
 ## Passo a passo: treinar seus próprios pesos e gerar texto
 
@@ -12,7 +17,7 @@ só são usados quando a opção `--pretrained` é informada explicitamente.
 Na pasta do projeto, com o ambiente virtual ativado:
 
 ```powershell
-# 1. Treinar do zero na CPU e salvar em checkpoints/last.pt.
+# 1. Treinar do zero no dispositivo disponível e salvar em checkpoints/last.pt.
 python gpt2mini-default.py train
 
 # 2. Gerar texto usando os pesos que você mesmo treinou.
@@ -53,7 +58,7 @@ python gpt2mini-default.py generate --help
 python gpt2mini-default.py train
 ```
 
-O padrão usa B=2, T=64, duas threads, uma acumulação e 50 atualizações.
+O padrão usa B=2, T=64, duas threads de CPU, uma acumulação e 50 atualizações.
 Para reduzir o trabalho por atualização, use `--batch-size 1 --seq-len 32`.
 O perfil `small` usa quatro blocos, quatro cabeças e embeddings de 128 dimensões:
 os componentes são os mesmos da arquitetura GPT-2, com escala menor para esta CPU.
@@ -77,7 +82,9 @@ python gpt2mini-default.py train --grad-accum-steps 2 --checkpoint checkpoints/a
 `--threads` limita o paralelismo; `--learning-rate`, `--warmup-steps` e
 `--weight-decay` controlam a otimização. `--n-layer`, `--n-head`, `--n-embd` e
 `--block-size` permitem explorar outras dimensões. n_embd deve ser divisível por
-n_head, e seq-len não pode ultrapassar block-size. A execução usa float32 em CPU.
+n_head, e seq-len não pode ultrapassar block-size. A execução usa float32 no
+dispositivo selecionado. `--threads` controla as operações de CPU, inclusive quando
+há uma GPU disponível; ele não determina qual dispositivo será usado.
 
 ## Salvar e retomar
 
