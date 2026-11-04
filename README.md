@@ -1,5 +1,5 @@
 Essa aplicação foi feita 95% seguindo o video: Let's reproduce GPT-2 (124M) [https://www.youtube.com/watch?v=l8pRSuU81PU] do canal 'Andrej Karpathy'
-Tem multiplas anotações sobre multiplas coisas do código 
+Tem multiplas anotações sobre multiplas coisas do código que você não encontrará no código completo.
 
 # GPT-2 próprio: treino e geração na CPU
 
